@@ -17,45 +17,46 @@ constexpr wchar_t kMainClass[] = L"TaskManagerWindow";
 constexpr wchar_t kChartClass[] = L"CvChartWindow";
 constexpr int kMinChartW = 200;
 constexpr int kMinChartH = 150;
-constexpr int kMinSidebarCharts = 3;
-constexpr UINT kRescanMsg = WM_APP + 41;
 constexpr UINT_PTR kRescanTimerId = 1;
+constexpr UINT kRescanMs = 120;
 
 TrackRoiCallback g_callback = nullptr;
 void* g_user = nullptr;
 std::atomic<bool> g_running{false};
+std::atomic<int> g_followMode{TRACK_FOLLOW_EXTERNAL};
+
 HWND g_msgWnd = nullptr;
 HANDLE g_thread = nullptr;
 DWORD g_threadId = 0;
 HWINEVENTHOOK g_hookLoc = nullptr;
 HWINEVENTHOOK g_hookFg = nullptr;
+
 TrackRoiState g_last{};
 bool g_hasLast = false;
-// Win11 Taskmgr keeps one large CvChartWindow per resource and toggles visibility.
-// UIA names are often empty (XAML islands), so we remember the CPU large-chart HWND.
 HWND g_cpuLargeHwnd = nullptr;
 
-std::wstring GetClass(HWND hwnd) {
+std::wstring ClassName(HWND hwnd) {
     wchar_t buf[256]{};
     GetClassNameW(hwnd, buf, 256);
     return buf;
 }
 
-bool IsVisible(HWND hwnd) {
-    return hwnd && IsWindow(hwnd) && IsWindowVisible(hwnd);
+bool IsLive(HWND hwnd) {
+    return hwnd && IsWindow(hwnd);
+}
+
+bool IsShown(HWND hwnd) {
+    return IsLive(hwnd) && IsWindowVisible(hwnd);
 }
 
 struct ChartInfo {
     HWND hwnd = nullptr;
     RECT rc{};
     bool visible = false;
+    long Area() const {
+        return (rc.right - rc.left) * 1L * (rc.bottom - rc.top);
+    }
 };
-
-bool IsSidebarSparkline(const ChartInfo& c) {
-    const int w = c.rc.right - c.rc.left;
-    const int h = c.rc.bottom - c.rc.top;
-    return w >= 40 && w < 150 && h >= 20 && h < 120;
-}
 
 bool IsMainGraph(const ChartInfo& c) {
     const int w = c.rc.right - c.rc.left;
@@ -64,27 +65,22 @@ bool IsMainGraph(const ChartInfo& c) {
 }
 
 void CollectCharts(HWND parent, std::vector<ChartInfo>& out) {
-    // Walk immediate children and recurse. Deduplicate: some hosts report the same HWND
-    // through multiple paths; EnumChildWindows descendant behavior varies by OS build.
     EnumChildWindows(
         parent,
         [](HWND hwnd, LPARAM lp) -> BOOL {
             auto* out = reinterpret_cast<std::vector<ChartInfo>*>(lp);
-            if (GetClass(hwnd) == kChartClass) {
+            if (ClassName(hwnd) == kChartClass) {
                 RECT rc{};
                 if (GetWindowRect(hwnd, &rc) && (rc.right - rc.left) > 0 && (rc.bottom - rc.top) > 0) {
-                    bool exists = false;
-                    for (const auto& existing : *out) {
-                        if (existing.hwnd == hwnd) {
-                            exists = true;
+                    bool dup = false;
+                    for (const auto& e : *out) {
+                        if (e.hwnd == hwnd) {
+                            dup = true;
                             break;
                         }
                     }
-                    if (!exists) {
-                        // Prefer IsWindowVisible; also accept if window is showing on screen
-                        // (DirectUI/XAML sometimes reports odd visibility for painted charts).
-                        const bool vis = IsWindowVisible(hwnd) != FALSE;
-                        out->push_back({hwnd, rc, vis});
+                    if (!dup) {
+                        out->push_back({hwnd, rc, IsWindowVisible(hwnd) != FALSE});
                     }
                 }
             }
@@ -94,97 +90,103 @@ void CollectCharts(HWND parent, std::vector<ChartInfo>& out) {
         reinterpret_cast<LPARAM>(&out));
 }
 
-bool NameLooksLikeCpu(const std::wstring& name) {
-    if (name.empty()) {
-        return false;
-    }
-    // Win11 zh-CN sidebar still uses "CPU" prefix; also accept English.
-    return name.rfind(L"CPU", 0) == 0 || name.rfind(L"Cpu", 0) == 0;
+HWND FindTaskmgrMain() {
+    HWND found = nullptr;
+    EnumWindows(
+        [](HWND hwnd, LPARAM lp) -> BOOL {
+            HWND* out = reinterpret_cast<HWND*>(lp);
+            if (!IsShown(hwnd) || ClassName(hwnd) != kMainClass) {
+                return TRUE;
+            }
+            DWORD pid = 0;
+            GetWindowThreadProcessId(hwnd, &pid);
+            bool ok = true;
+            HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+            if (proc) {
+                wchar_t path[MAX_PATH]{};
+                DWORD size = MAX_PATH;
+                if (QueryFullProcessImageNameW(proc, 0, path, &size)) {
+                    std::wstring p(path);
+                    for (auto& ch : p) {
+                        ch = towlower(ch);
+                    }
+                    ok = p.find(L"taskmgr.exe") != std::wstring::npos;
+                }
+                CloseHandle(proc);
+            }
+            if (!ok) {
+                return TRUE;
+            }
+            RECT rc{};
+            if (!GetWindowRect(hwnd, &rc) || (rc.right - rc.left) < 100 || (rc.bottom - rc.top) < 100) {
+                return TRUE;
+            }
+            *out = hwnd;
+            return FALSE;
+        },
+        reinterpret_cast<LPARAM>(&found));
+    return found;
 }
 
-bool NameLooksLikeNonCpuPerf(const std::wstring& name) {
-    // Avoid non-ASCII source encoding issues: use hex escapes for zh labels.
+bool NameLooksLikeCpu(const std::wstring& name) {
+    return !name.empty() && (name.rfind(L"CPU", 0) == 0 || name.rfind(L"Cpu", 0) == 0);
+}
+
+bool NameLooksLikeNonCpu(const std::wstring& name) {
     static const wchar_t* keys[] = {
-        L"\x5185\x5b58", // 内存
-        L"Memory",
-        L"\x78c1\x76d8", // 磁盘
-        L"Disk",
-        L"GPU",
-        L"\x4ee5\x592a\x7f51", // 以太网
-        L"Ethernet",
-        L"Wi-Fi",
-        L"WLAN",
-        L"Bluetooth",
-        L"\x84dd\x7259", // 蓝牙
+        L"\x5185\x5b58", L"Memory", L"\x78c1\x76d8", L"Disk", L"GPU",
+        L"\x4ee5\x592a\x7f51", L"Ethernet", L"Wi-Fi", L"WLAN", L"Bluetooth", L"\x84dd\x7259",
     };
-    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); ++i) {
-        if (name.find(keys[i]) != std::wstring::npos) {
+    for (auto* k : keys) {
+        if (name.find(k) != std::wstring::npos) {
             return true;
         }
     }
     return false;
 }
 
-bool HasExactCpuTitle(HWND mainHwnd, IUIAutomation* automation, IUIAutomationElement* root) {
-    VARIANT var{};
-    var.vt = VT_BSTR;
-    var.bstrVal = SysAllocString(L"CPU");
-    IUIAutomationCondition* nameCond = nullptr;
-    HRESULT hr = automation->CreatePropertyCondition(UIA_NamePropertyId, var, &nameCond);
-    VariantClear(&var);
-    if (FAILED(hr) || !nameCond) {
-        return false;
-    }
-
-    IUIAutomationElementArray* arr = nullptr;
-    hr = root->FindAll(TreeScope_Descendants, nameCond, &arr);
-    nameCond->Release();
-    bool found = false;
-    if (SUCCEEDED(hr) && arr) {
-        int count = 0;
-        arr->get_Length(&count);
-        found = count > 0;
-        arr->Release();
-    }
-    return found;
-}
-
-// Returns: 1 = CPU, 0 = other perf page, -1 = UIA inconclusive (XAML island / empty names).
+// 1 = CPU, 0 = other, -1 = inconclusive (typical on Win11 XAML Taskmgr).
 int TryUiaCpuPage(HWND mainHwnd) {
-    if (!mainHwnd) {
-        return -1;
-    }
-
     IUIAutomation* automation = nullptr;
-    HRESULT hr = CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
-                                  IID_IUIAutomation, reinterpret_cast<void**>(&automation));
-    if (FAILED(hr) || !automation) {
+    if (FAILED(CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER, IID_IUIAutomation,
+                                reinterpret_cast<void**>(&automation))) ||
+        !automation) {
         return -1;
     }
 
     IUIAutomationElement* root = nullptr;
-    hr = automation->ElementFromHandle(mainHwnd, &root);
-    if (FAILED(hr) || !root) {
+    if (FAILED(automation->ElementFromHandle(mainHwnd, &root)) || !root) {
         automation->Release();
         return -1;
     }
 
-    if (HasExactCpuTitle(mainHwnd, automation, root)) {
-        root->Release();
-        automation->Release();
-        return 1;
+    VARIANT var{};
+    var.vt = VT_BSTR;
+    var.bstrVal = SysAllocString(L"CPU");
+    IUIAutomationCondition* nameCond = nullptr;
+    if (SUCCEEDED(automation->CreatePropertyCondition(UIA_NamePropertyId, var, &nameCond)) && nameCond) {
+        IUIAutomationElementArray* exact = nullptr;
+        if (SUCCEEDED(root->FindAll(TreeScope_Descendants, nameCond, &exact)) && exact) {
+            int n = 0;
+            exact->get_Length(&n);
+            exact->Release();
+            if (n > 0) {
+                nameCond->Release();
+                VariantClear(&var);
+                root->Release();
+                automation->Release();
+                return 1;
+            }
+        }
+        nameCond->Release();
     }
+    VariantClear(&var);
 
     IUIAutomationCondition* trueCond = nullptr;
     automation->CreateTrueCondition(&trueCond);
-
     IUIAutomationElementArray* arr = nullptr;
-    hr = root->FindAll(TreeScope_Descendants, trueCond, &arr);
-    bool cpuSelected = false;
-    bool otherSelected = false;
-    bool sawAnyName = false;
-
-    if (SUCCEEDED(hr) && arr) {
+    bool cpuSel = false, otherSel = false, sawName = false;
+    if (trueCond && SUCCEEDED(root->FindAll(TreeScope_Descendants, trueCond, &arr)) && arr) {
         int count = 0;
         arr->get_Length(&count);
         for (int i = 0; i < count; ++i) {
@@ -192,97 +194,76 @@ int TryUiaCpuPage(HWND mainHwnd) {
             if (FAILED(arr->GetElement(i, &el)) || !el) {
                 continue;
             }
-
-            BSTR anyName = nullptr;
-            el->get_CurrentName(&anyName);
-            if (anyName && *anyName) {
-                sawAnyName = true;
+            BSTR nm = nullptr;
+            el->get_CurrentName(&nm);
+            if (nm && *nm) {
+                sawName = true;
             }
-            if (anyName) {
-                SysFreeString(anyName);
-            }
-
             IUIAutomationSelectionItemPattern* sel = nullptr;
-            hr = el->GetCurrentPatternAs(UIA_SelectionItemPatternId,
-                                         IID_IUIAutomationSelectionItemPattern,
-                                         reinterpret_cast<void**>(&sel));
-            if (SUCCEEDED(hr) && sel) {
-                BOOL isSelected = FALSE;
-                sel->get_CurrentIsSelected(&isSelected);
-                if (isSelected) {
-                    BSTR name = nullptr;
-                    el->get_CurrentName(&name);
-                    std::wstring n = name ? name : L"";
-                    if (name) {
-                        SysFreeString(name);
-                    }
+            if (SUCCEEDED(el->GetCurrentPatternAs(UIA_SelectionItemPatternId,
+                                                  IID_IUIAutomationSelectionItemPattern,
+                                                  reinterpret_cast<void**>(&sel))) &&
+                sel) {
+                BOOL selected = FALSE;
+                sel->get_CurrentIsSelected(&selected);
+                if (selected) {
+                    std::wstring n = nm ? nm : L"";
                     if (NameLooksLikeCpu(n)) {
-                        cpuSelected = true;
-                    } else if (NameLooksLikeNonCpuPerf(n)) {
-                        otherSelected = true;
+                        cpuSel = true;
+                    } else if (NameLooksLikeNonCpu(n)) {
+                        otherSel = true;
                     }
                 }
                 sel->Release();
+            }
+            if (nm) {
+                SysFreeString(nm);
             }
             el->Release();
         }
         arr->Release();
     }
-
     if (trueCond) {
         trueCond->Release();
     }
     root->Release();
     automation->Release();
 
-    if (cpuSelected) {
+    if (cpuSel) {
         return 1;
     }
-    if (otherSelected) {
+    if (otherSel) {
         return 0;
-    }
-    // Modern Taskmgr: XAML island → almost no useful names/selection. Treat as inconclusive.
-    if (!sawAnyName) {
-        return -1;
     }
     return -1;
 }
 
-bool IsCpuPageSelected(HWND mainHwnd, HWND visibleLargeHwnd) {
-    if (!visibleLargeHwnd) {
+bool AcceptCpuPage(HWND mainHwnd, HWND visibleLarge) {
+    if (!visibleLarge) {
         return false;
     }
-
     const int uia = TryUiaCpuPage(mainHwnd);
     if (uia == 1) {
-        g_cpuLargeHwnd = visibleLargeHwnd;
+        g_cpuLargeHwnd = visibleLarge;
         return true;
     }
     if (uia == 0) {
         return false;
     }
 
-    // UIA inconclusive (Win11 XAML Taskmgr): TaskmgrPlayer-style — accept the current
-    // visible large chart. Sticky HWND still used so switching Memory/GPU (different
-    // visible large HWND, CPU hwnd hidden) can hide the overlay.
-    if (!g_cpuLargeHwnd || !IsWindow(g_cpuLargeHwnd)) {
-        g_cpuLargeHwnd = visibleLargeHwnd;
+    // Sticky HWND: first visible large chart binds as CPU; other page when that HWND hides.
+    if (!IsLive(g_cpuLargeHwnd)) {
+        g_cpuLargeHwnd = visibleLarge;
         return true;
     }
-    if (visibleLargeHwnd == g_cpuLargeHwnd) {
+    if (visibleLarge == g_cpuLargeHwnd) {
         return true;
     }
-    if (!IsWindowVisible(g_cpuLargeHwnd)) {
-        return false;
-    }
-    return true;
+    return IsWindowVisible(g_cpuLargeHwnd) != FALSE;
 }
 
 bool IsForegroundRelated(HWND mainHwnd, HWND chartHwnd) {
     HWND fg = GetForegroundWindow();
-    if (!fg) {
-        return false;
-    }
     for (HWND cur = fg; cur; cur = GetParent(cur)) {
         if (cur == mainHwnd || cur == chartHwnd) {
             return true;
@@ -293,45 +274,9 @@ bool IsForegroundRelated(HWND mainHwnd, HWND chartHwnd) {
 
 bool FindCpuChart(TrackRoiState& out) {
     ZeroMemory(&out, sizeof(out));
+    out.follow_mode = g_followMode.load();
 
-    HWND mainHwnd = nullptr;
-    EnumWindows(
-        [](HWND hwnd, LPARAM lp) -> BOOL {
-            HWND* mainHwnd = reinterpret_cast<HWND*>(lp);
-            if (!IsVisible(hwnd)) {
-                return TRUE;
-            }
-            if (GetClass(hwnd) != kMainClass) {
-                return TRUE;
-            }
-            DWORD pid = 0;
-            GetWindowThreadProcessId(hwnd, &pid);
-            HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-            bool isTaskmgr = true;
-            if (proc) {
-                wchar_t path[MAX_PATH]{};
-                DWORD size = MAX_PATH;
-                if (QueryFullProcessImageNameW(proc, 0, path, &size)) {
-                    std::wstring p(path);
-                    for (auto& ch : p) {
-                        ch = towlower(ch);
-                    }
-                    isTaskmgr = p.find(L"taskmgr.exe") != std::wstring::npos;
-                }
-                CloseHandle(proc);
-            }
-            if (!isTaskmgr) {
-                return TRUE;
-            }
-            RECT rc{};
-            if (!GetWindowRect(hwnd, &rc) || (rc.right - rc.left) < 100 || (rc.bottom - rc.top) < 100) {
-                return TRUE;
-            }
-            *mainHwnd = hwnd;
-            return FALSE; // stop on first
-        },
-        reinterpret_cast<LPARAM>(&mainHwnd));
-
+    HWND mainHwnd = FindTaskmgrMain();
     if (!mainHwnd) {
         return false;
     }
@@ -341,54 +286,45 @@ bool FindCpuChart(TrackRoiState& out) {
     out.main_hwnd = reinterpret_cast<int64_t>(mainHwnd);
     out.chart_count = static_cast<int32_t>(charts.size());
 
-    // Same core idea as TaskmgrPlayer: largest CvChartWindow by area.
-    // Prefer visible; if none report visible (DirectUI quirk), fall back to absolute largest.
-    ChartInfo* bestVisibleLarge = nullptr;
-    ChartInfo* bestAnyLarge = nullptr;
+    ChartInfo* bestVisible = nullptr;
+    ChartInfo* bestAny = nullptr;
     long bestVisArea = 0;
     long bestAnyArea = 0;
     for (auto& c : charts) {
         if (!IsMainGraph(c)) {
             continue;
         }
-        const long area = (c.rc.right - c.rc.left) * 1L * (c.rc.bottom - c.rc.top);
+        const long area = c.Area();
         if (area > bestAnyArea) {
             bestAnyArea = area;
-            bestAnyLarge = &c;
+            bestAny = &c;
         }
         if (c.visible && area > bestVisArea) {
             bestVisArea = area;
-            bestVisibleLarge = &c;
+            bestVisible = &c;
         }
     }
 
-    out.chart_count = static_cast<int32_t>(charts.size());
-
-    ChartInfo* candidate = bestVisibleLarge ? bestVisibleLarge : bestAnyLarge;
-    if (!candidate) {
+    ChartInfo* pageCandidate = bestVisible ? bestVisible : bestAny;
+    if (!pageCandidate) {
         return false;
     }
 
-    // Bind / filter CPU page only from *visible* large charts. Binding a hidden twin
-    // (slightly larger area on Win11) then rejecting the real visible chart caused
-    // permanent "no CPU chart".
-    HWND pageHwnd = bestVisibleLarge ? bestVisibleLarge->hwnd : candidate->hwnd;
-    const bool cpuPage = IsCpuPageSelected(mainHwnd, pageHwnd);
-    out.is_cpu_page = cpuPage ? 1 : 0;
-    if (!cpuPage) {
+    HWND pageHwnd = bestVisible ? bestVisible->hwnd : pageCandidate->hwnd;
+    if (!AcceptCpuPage(mainHwnd, pageHwnd)) {
+        out.is_cpu_page = 0;
         return false;
     }
+    out.is_cpu_page = 1;
 
-    ChartInfo* best = candidate;
-    if (g_cpuLargeHwnd && IsWindow(g_cpuLargeHwnd) && IsWindowVisible(g_cpuLargeHwnd)) {
+    ChartInfo* best = bestVisible ? bestVisible : pageCandidate;
+    if (IsShown(g_cpuLargeHwnd)) {
         for (auto& c : charts) {
             if (c.hwnd == g_cpuLargeHwnd && IsMainGraph(c)) {
                 best = &c;
                 break;
             }
         }
-    } else if (bestVisibleLarge) {
-        best = bestVisibleLarge;
     }
 
     out.chart_hwnd = reinterpret_cast<int64_t>(best->hwnd);
@@ -396,15 +332,18 @@ bool FindCpuChart(TrackRoiState& out) {
     out.top = best->rc.top;
     out.width = best->rc.right - best->rc.left;
     out.height = best->rc.bottom - best->rc.top;
+
     UINT dpi = GetDpiForWindow(best->hwnd);
     if (dpi == 0) {
         dpi = GetDpiForWindow(mainHwnd);
     }
-    if (dpi == 0) {
-        dpi = 96;
+    out.dpi = dpi ? dpi : 96;
+
+    if (g_followMode.load() == TRACK_FOLLOW_CHILD) {
+        out.should_show = IsShown(best->hwnd) ? 1 : 0;
+    } else {
+        out.should_show = IsForegroundRelated(mainHwnd, best->hwnd) ? 1 : 0;
     }
-    out.dpi = dpi;
-    out.should_show = IsForegroundRelated(mainHwnd, best->hwnd) ? 1 : 0;
     return true;
 }
 
@@ -412,15 +351,16 @@ bool StateEqual(const TrackRoiState& a, const TrackRoiState& b) {
     return a.chart_hwnd == b.chart_hwnd && a.main_hwnd == b.main_hwnd && a.left == b.left &&
            a.top == b.top && a.width == b.width && a.height == b.height && a.dpi == b.dpi &&
            a.chart_count == b.chart_count && a.should_show == b.should_show &&
-           a.is_cpu_page == b.is_cpu_page;
+           a.is_cpu_page == b.is_cpu_page && a.follow_mode == b.follow_mode;
 }
 
 void Emit(const TrackRoiState* state) {
     if (!g_callback) {
         return;
     }
-    if (state == nullptr) {
+    if (!state) {
         TrackRoiState empty{};
+        empty.follow_mode = g_followMode.load();
         g_callback(&empty, g_user);
         g_hasLast = false;
         g_last = empty;
@@ -443,8 +383,7 @@ void RefreshAndEmit() {
     Emit(&state);
 }
 
-void CALLBACK WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd, LONG idObject, LONG, DWORD,
-                           DWORD) {
+void CALLBACK WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd, LONG idObject, LONG, DWORD, DWORD) {
     if (!g_running.load()) {
         return;
     }
@@ -452,43 +391,34 @@ void CALLBACK WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd, LONG idObject,
         RefreshAndEmit();
         return;
     }
-    if (idObject != OBJID_WINDOW) {
-        return;
-    }
-    if (!g_hasLast) {
-        RefreshAndEmit();
+    if (idObject != OBJID_WINDOW || !g_hasLast) {
+        if (!g_hasLast) {
+            RefreshAndEmit();
+        }
         return;
     }
     HWND chart = reinterpret_cast<HWND>(static_cast<intptr_t>(g_last.chart_hwnd));
     HWND main = reinterpret_cast<HWND>(static_cast<intptr_t>(g_last.main_hwnd));
-    if (hwnd == chart || hwnd == main) {
-        if (event == EVENT_OBJECT_LOCATIONCHANGE || event == EVENT_OBJECT_DESTROY ||
-            event == EVENT_OBJECT_HIDE || event == EVENT_OBJECT_SHOW) {
-            RefreshAndEmit();
-        }
+    if ((hwnd == chart || hwnd == main) &&
+        (event == EVENT_OBJECT_LOCATIONCHANGE || event == EVENT_OBJECT_DESTROY ||
+         event == EVENT_OBJECT_HIDE || event == EVENT_OBJECT_SHOW)) {
+        RefreshAndEmit();
     }
 }
 
 LRESULT CALLBACK MsgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    switch (msg) {
-    case WM_TIMER:
-        if (wParam == kRescanTimerId) {
-            RefreshAndEmit();
-        }
-        return 0;
-    case kRescanMsg:
+    if (msg == WM_TIMER && wParam == kRescanTimerId) {
         RefreshAndEmit();
         return 0;
-    case WM_DESTROY:
+    }
+    if (msg == WM_DESTROY) {
         PostQuitMessage(0);
         return 0;
-    default:
-        return DefWindowProcW(hwnd, msg, wParam, lParam);
     }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
 DWORD WINAPI TrackThread(LPVOID) {
-    // STA: UIA is more reliable; also required for some accessibility providers.
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
     WNDCLASSW wc{};
@@ -503,8 +433,7 @@ DWORD WINAPI TrackThread(LPVOID) {
                                 WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
     g_hookFg = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, WinEventProc,
                                0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
-
-    SetTimer(g_msgWnd, kRescanTimerId, 120, nullptr);
+    SetTimer(g_msgWnd, kRescanTimerId, kRescanMs, nullptr);
     RefreshAndEmit();
 
     MSG msg;
@@ -526,7 +455,6 @@ DWORD WINAPI TrackThread(LPVOID) {
         UnhookWinEvent(g_hookFg);
         g_hookFg = nullptr;
     }
-
     CoUninitialize();
     return 0;
 }
@@ -534,6 +462,13 @@ DWORD WINAPI TrackThread(LPVOID) {
 } // namespace
 
 extern "C" {
+
+TRACK_API void __stdcall Track_SetFollowMode(int mode) {
+    g_followMode.store(mode == TRACK_FOLLOW_CHILD ? TRACK_FOLLOW_CHILD : TRACK_FOLLOW_EXTERNAL);
+    if (g_msgWnd) {
+        PostMessageW(g_msgWnd, WM_TIMER, kRescanTimerId, 0);
+    }
+}
 
 TRACK_API int __stdcall Track_Start(TrackRoiCallback callback, void* user_data) {
     if (g_running.exchange(true)) {
@@ -572,6 +507,7 @@ TRACK_API int __stdcall Track_GetState(TrackRoiState* out_state) {
     TrackRoiState state{};
     if (!FindCpuChart(state)) {
         ZeroMemory(out_state, sizeof(*out_state));
+        out_state->follow_mode = g_followMode.load();
         return 1;
     }
     *out_state = state;
