@@ -1,0 +1,3 @@
+[submodule "reference/copy-dialog-lunar-lander"]
+	path = reference/copy-dialog-lunar-lander
+	url = https://github.com/CS-LX/copy-dialog-lunar-lander.git
