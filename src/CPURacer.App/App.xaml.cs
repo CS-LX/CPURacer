@@ -13,18 +13,21 @@ public partial class App : Application
     private Forms.ToolStripMenuItem? _trackItem;
     private Forms.ToolStripMenuItem? _overlayItem;
     private Forms.ToolStripMenuItem? _statusItem;
+    private Forms.ToolStripMenuItem? _followExternalItem;
+    private Forms.ToolStripMenuItem? _followChildItem;
     private OverlayWindow? _overlay;
     private TaskmgrWatcher? _watcher;
-    private bool _tracking;
     private bool _debugOverlay = true;
+    private TrackFollowMode _followMode = TrackFollowMode.External;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         Forms.Application.SetHighDpiMode(Forms.HighDpiMode.PerMonitorV2);
         base.OnStartup(e);
 
-        _overlay = new OverlayWindow { ShowDebugChrome = _debugOverlay };
+        _overlay = new OverlayWindow { ShowDebugChrome = _debugOverlay, FollowMode = _followMode };
         _watcher = new TaskmgrWatcher();
+        _watcher.SetFollowMode(_followMode);
         _watcher.RoiChanged += roi =>
         {
             if (Dispatcher.CheckAccess())
@@ -37,45 +40,7 @@ public partial class App : Application
             }
         };
 
-        _tray = new Forms.NotifyIcon
-        {
-            Text = "CPURacer",
-            Visible = true,
-            Icon = SystemIcons.Application,
-        };
-
-        var menu = new Forms.ContextMenuStrip();
-        _trackItem = new Forms.ToolStripMenuItem("开始跟踪 Taskmgr") { Name = "track" };
-        _trackItem.Click += (_, _) => ToggleTracking();
-        menu.Items.Add(_trackItem);
-
-        _overlayItem = new Forms.ToolStripMenuItem("手动显示 Overlay") { Name = "overlay", Checked = false };
-        _overlayItem.Click += (_, _) => ToggleOverlayManual();
-        menu.Items.Add(_overlayItem);
-
-        var debugItem = new Forms.ToolStripMenuItem("调试描边") { Name = "debug", Checked = _debugOverlay, CheckOnClick = true };
-        debugItem.CheckedChanged += (_, _) =>
-        {
-            _debugOverlay = debugItem.Checked;
-            if (_overlay is not null)
-            {
-                _overlay.ShowDebugChrome = _debugOverlay;
-                _overlay.InvalidateVisual();
-            }
-        };
-        menu.Items.Add(debugItem);
-
-        _statusItem = new Forms.ToolStripMenuItem("状态: 未跟踪") { Name = "status", Enabled = false };
-        menu.Items.Add(_statusItem);
-
-        menu.Items.Add(new Forms.ToolStripSeparator());
-
-        var exitItem = new Forms.ToolStripMenuItem("退出");
-        exitItem.Click += (_, _) => ExitApp();
-        menu.Items.Add(exitItem);
-
-        _tray.ContextMenuStrip = menu;
-        _tray.DoubleClick += (_, _) => ToggleOverlayManual();
+        BuildTray();
 
         MainWindow = new Window
         {
@@ -91,6 +56,95 @@ public partial class App : Application
         MainWindow.Hide();
     }
 
+    private void BuildTray()
+    {
+        _tray = new Forms.NotifyIcon
+        {
+            Text = "CPURacer",
+            Visible = true,
+            Icon = SystemIcons.Application,
+        };
+
+        var menu = new Forms.ContextMenuStrip();
+
+        _trackItem = new Forms.ToolStripMenuItem("开始跟踪 Taskmgr");
+        _trackItem.Click += (_, _) => ToggleTracking();
+        menu.Items.Add(_trackItem);
+
+        var followMenu = new Forms.ToolStripMenuItem("跟随方式");
+        _followExternalItem = new Forms.ToolStripMenuItem("外部 Overlay（WinEvent）") { CheckOnClick = true };
+        _followChildItem = new Forms.ToolStripMenuItem("子窗 SetParent（TaskmgrPlayer 式）") { CheckOnClick = true };
+        _followExternalItem.Click += (_, _) => SetFollowMode(TrackFollowMode.External);
+        _followChildItem.Click += (_, _) => SetFollowMode(TrackFollowMode.Child);
+        followMenu.DropDownItems.Add(_followExternalItem);
+        followMenu.DropDownItems.Add(_followChildItem);
+        menu.Items.Add(followMenu);
+        SyncFollowMenu();
+
+        _overlayItem = new Forms.ToolStripMenuItem("手动显示 Overlay");
+        _overlayItem.Click += (_, _) => ToggleOverlayManual();
+        menu.Items.Add(_overlayItem);
+
+        var debugItem = new Forms.ToolStripMenuItem("调试描边") { Checked = _debugOverlay, CheckOnClick = true };
+        debugItem.CheckedChanged += (_, _) =>
+        {
+            _debugOverlay = debugItem.Checked;
+            if (_overlay is not null)
+            {
+                _overlay.ShowDebugChrome = _debugOverlay;
+                _overlay.InvalidateVisual();
+            }
+        };
+        menu.Items.Add(debugItem);
+
+        _statusItem = new Forms.ToolStripMenuItem("状态: 未跟踪") { Enabled = false };
+        menu.Items.Add(_statusItem);
+        menu.Items.Add(new Forms.ToolStripSeparator());
+
+        var exitItem = new Forms.ToolStripMenuItem("退出");
+        exitItem.Click += (_, _) => Shutdown();
+        menu.Items.Add(exitItem);
+
+        _tray.ContextMenuStrip = menu;
+        _tray.DoubleClick += (_, _) => ToggleOverlayManual();
+    }
+
+    private void SetFollowMode(TrackFollowMode mode)
+    {
+        if (_followMode == mode)
+        {
+            SyncFollowMenu();
+            return;
+        }
+
+        _followMode = mode;
+        _watcher?.SetFollowMode(mode);
+        if (_overlay is not null)
+        {
+            _overlay.FollowMode = mode;
+            if (_watcher?.IsTracking == true)
+            {
+                _overlay.ApplyRoi(_watcher.CurrentRoi);
+            }
+        }
+
+        SyncFollowMenu();
+        UpdateTrayTip(_watcher?.CurrentRoi);
+    }
+
+    private void SyncFollowMenu()
+    {
+        if (_followExternalItem is not null)
+        {
+            _followExternalItem.Checked = _followMode == TrackFollowMode.External;
+        }
+
+        if (_followChildItem is not null)
+        {
+            _followChildItem.Checked = _followMode == TrackFollowMode.Child;
+        }
+    }
+
     private void OnRoiChanged(ChartRoi? roi)
     {
         _overlay?.ApplyRoi(roi);
@@ -104,7 +158,7 @@ public partial class App : Application
             return;
         }
 
-        if (!_tracking)
+        if (_watcher?.IsTracking != true)
         {
             _tray.Text = "CPURacer";
             if (_statusItem is not null)
@@ -115,19 +169,13 @@ public partial class App : Application
             return;
         }
 
-        var mode = _watcher?.UsingNativeTracker == true ? "native" : "managed";
-        string status;
-        if (roi is null)
-        {
-            status = $"tracking ({mode}, no CPU chart)";
-            _tray.Text = $"CPURacer — {status}";
-        }
-        else
-        {
-            status = $"{roi.Value.Width}x{roi.Value.Height} ({mode}) show={roi.Value.ShouldShow}";
-            _tray.Text = $"CPURacer — {status}";
-        }
+        var backend = _watcher.UsingNativeTracker ? "native" : "managed";
+        var follow = _followMode == TrackFollowMode.Child ? "child" : "external";
+        var status = roi is null
+            ? $"tracking ({backend}/{follow}, no CPU chart)"
+            : $"{roi.Value.Width}x{roi.Value.Height} ({backend}/{follow}) show={roi.Value.ShouldShow}";
 
+        _tray.Text = $"CPURacer — {status}";
         if (_statusItem is not null)
         {
             _statusItem.Text = $"状态: {status}";
@@ -141,10 +189,9 @@ public partial class App : Application
             return;
         }
 
-        if (_tracking)
+        if (_watcher.IsTracking)
         {
             _watcher.Stop();
-            _tracking = false;
             _trackItem.Text = "开始跟踪 Taskmgr";
             _overlay.ApplyRoi(null);
             UpdateTrayTip(null);
@@ -160,8 +207,9 @@ public partial class App : Application
                 Forms.MessageBoxIcon.Warning);
         }
 
+        _overlay.FollowMode = _followMode;
+        _watcher.SetFollowMode(_followMode);
         _watcher.Start();
-        _tracking = true;
         _trackItem.Text = "停止跟踪 Taskmgr";
         UpdateTrayTip(_watcher.CurrentRoi);
     }
@@ -188,7 +236,7 @@ public partial class App : Application
         }
     }
 
-    private void ExitApp()
+    protected override void OnExit(ExitEventArgs e)
     {
         _watcher?.Dispose();
         _watcher = null;
@@ -204,18 +252,6 @@ public partial class App : Application
             _tray.Visible = false;
             _tray.Dispose();
             _tray = null;
-        }
-
-        Shutdown();
-    }
-
-    protected override void OnExit(ExitEventArgs e)
-    {
-        _watcher?.Dispose();
-        if (_tray is not null)
-        {
-            _tray.Visible = false;
-            _tray.Dispose();
         }
 
         base.OnExit(e);

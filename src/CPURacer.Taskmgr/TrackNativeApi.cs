@@ -2,6 +2,15 @@ using System.Runtime.InteropServices;
 
 namespace CPURacer.Taskmgr;
 
+public enum TrackFollowMode
+{
+    /// <summary>External topmost overlay in screen coordinates (WinEvent follow).</summary>
+    External = 0,
+
+    /// <summary>TaskmgrPlayer-style: overlay is SetParent'd into the chart HWND.</summary>
+    Child = 1,
+}
+
 [StructLayout(LayoutKind.Sequential)]
 public struct TrackRoiState
 {
@@ -15,6 +24,7 @@ public struct TrackRoiState
     public int ChartCount;
     public int ShouldShow;
     public int IsCpuPage;
+    public int FollowMode;
 }
 
 public static class TrackNativeApi
@@ -23,6 +33,9 @@ public static class TrackNativeApi
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     public delegate void RoiCallback(ref TrackRoiState state, IntPtr userData);
+
+    [DllImport(DllName, EntryPoint = "Track_SetFollowMode", CallingConvention = CallingConvention.StdCall)]
+    public static extern void SetFollowMode(int mode);
 
     [DllImport(DllName, EntryPoint = "Track_Start", CallingConvention = CallingConvention.StdCall)]
     public static extern int Start(RoiCallback callback, IntPtr userData);
@@ -37,8 +50,7 @@ public static class TrackNativeApi
     {
         try
         {
-            var path = Path.Combine(AppContext.BaseDirectory, DllName);
-            return File.Exists(path);
+            return File.Exists(Path.Combine(AppContext.BaseDirectory, DllName));
         }
         catch
         {

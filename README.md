@@ -35,9 +35,11 @@ dotnet run --project src\CPURacer.App --no-build
 
 运行后托盘出现 **CPURacer**：
 
-- **开始跟踪 Taskmgr**：C++ `TrackNative`（WinEvent + CPU 页判定）钉红框；托盘提示含 `native` / `managed`
-- **手动显示 Overlay**：强制显示（忽略前台规则）
-- **调试描边** / **退出**
+- **开始跟踪 Taskmgr**：C++ `TrackNative`（WinEvent + CPU 页判定）钉红框；状态含 `native`/`managed` 与跟随方式
+- **跟随方式**
+  - **外部 Overlay（WinEvent）**：屏幕坐标 Topmost（默认）
+  - **子窗 SetParent（TaskmgrPlayer 式）**：透明 Overlay `SetParent` 进图表，客户区 `MoveWindow(0,0,w,h)`，拖动跟随更跟手
+- **手动显示 Overlay** / **调试描边** / **退出**
 
 ### M1.5 验收
 
@@ -47,6 +49,9 @@ dotnet run --project src\CPURacer.App --no-build
 4. 切到 **内存 / GPU**：红框消失  
 5. 切回 **CPU**：红框回来  
 6. Alt+Tab / 点其它窗：红框立刻消失；Taskmgr 仍可见但非前台时也**无**红框  
+7. 托盘 **跟随方式**：可在「外部 Overlay」与「子窗 SetParent」间切换  
+
+**状态：** M1.5 **已验收通过**。完整性级别与跟随方式的交叉限制见 [docs/research/M1.5-验收-跟随与完整性.md](docs/research/M1.5-验收-跟随与完整性.md)。
 
 ## 参考
 
@@ -61,4 +66,5 @@ dotnet run --project src\CPURacer.App --no-build
 
 ## 状态
 
-**M1.5 实现中/待验收**：`TrackNative` + `build.cmd` 已接入。暂不进入 M2。
+**M1.5 已验收**：`TrackNative` + 双跟随方式已接入。可进入 M2（合成帧 / 蓝线拟合）。  
+完整性 × 跟随方式的已知限制见 [docs/research/M1.5-验收-跟随与完整性.md](docs/research/M1.5-验收-跟随与完整性.md)。
