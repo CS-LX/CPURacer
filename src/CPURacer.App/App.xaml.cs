@@ -1,5 +1,6 @@
 ﻿using System.Drawing;
 using System.Windows;
+using System.Windows.Threading;
 using CPURacer.Overlay;
 using CPURacer.Taskmgr;
 using Application = System.Windows.Application;
@@ -10,8 +11,11 @@ namespace CPURacer.App;
 public partial class App : Application
 {
     private Forms.NotifyIcon? _tray;
+    private Forms.ToolStripMenuItem? _trackItem;
+    private Forms.ToolStripMenuItem? _overlayItem;
     private OverlayWindow? _overlay;
     private TaskmgrWatcher? _watcher;
+    private DispatcherTimer? _foregroundTimer;
     private bool _tracking;
     private bool _debugOverlay = true;
 
@@ -22,10 +26,13 @@ public partial class App : Application
 
         _overlay = new OverlayWindow { ShowDebugChrome = _debugOverlay };
         _watcher = new TaskmgrWatcher();
-        _watcher.RoiChanged += _ =>
+        _watcher.RoiChanged += roi => Dispatcher.Invoke(() => OnRoiChanged(roi));
+
+        _foregroundTimer = new DispatcherTimer
         {
-            // M1: align overlay to ROI
+            Interval = TimeSpan.FromMilliseconds(100),
         };
+        _foregroundTimer.Tick += (_, _) => _overlay?.TickForeground();
 
         _tray = new Forms.NotifyIcon
         {
@@ -35,13 +42,13 @@ public partial class App : Application
         };
 
         var menu = new Forms.ContextMenuStrip();
-        var trackItem = new Forms.ToolStripMenuItem("开始跟踪 Taskmgr（M1）") { Name = "track" };
-        trackItem.Click += (_, _) => ToggleTracking(trackItem);
-        menu.Items.Add(trackItem);
+        _trackItem = new Forms.ToolStripMenuItem("开始跟踪 Taskmgr") { Name = "track" };
+        _trackItem.Click += (_, _) => ToggleTracking();
+        menu.Items.Add(_trackItem);
 
-        var overlayItem = new Forms.ToolStripMenuItem("显示空 Overlay") { Name = "overlay", Checked = false };
-        overlayItem.Click += (_, _) => ToggleOverlay(overlayItem);
-        menu.Items.Add(overlayItem);
+        _overlayItem = new Forms.ToolStripMenuItem("手动显示 Overlay") { Name = "overlay", Checked = false };
+        _overlayItem.Click += (_, _) => ToggleOverlayManual();
+        menu.Items.Add(_overlayItem);
 
         var debugItem = new Forms.ToolStripMenuItem("调试描边") { Name = "debug", Checked = _debugOverlay, CheckOnClick = true };
         debugItem.CheckedChanged += (_, _) =>
@@ -62,7 +69,7 @@ public partial class App : Application
         menu.Items.Add(exitItem);
 
         _tray.ContextMenuStrip = menu;
-        _tray.DoubleClick += (_, _) => ToggleOverlay(overlayItem);
+        _tray.DoubleClick += (_, _) => ToggleOverlayManual();
 
         // Keep a hidden WPF window so the dispatcher stays alive cleanly.
         MainWindow = new Window
@@ -79,9 +86,38 @@ public partial class App : Application
         MainWindow.Hide();
     }
 
-    private void ToggleTracking(Forms.ToolStripMenuItem item)
+    private void OnRoiChanged(ChartRoi? roi)
     {
-        if (_watcher is null)
+        if (_overlay is null)
+        {
+            return;
+        }
+
+        _overlay.ApplyRoi(roi);
+        UpdateTrayTip(roi);
+    }
+
+    private void UpdateTrayTip(ChartRoi? roi)
+    {
+        if (_tray is null)
+        {
+            return;
+        }
+
+        if (!_tracking)
+        {
+            _tray.Text = "CPURacer";
+            return;
+        }
+
+        _tray.Text = roi is null
+            ? "CPURacer — 跟踪中（未找到大图）"
+            : $"CPURacer — {roi.Value.Width}x{roi.Value.Height}";
+    }
+
+    private void ToggleTracking()
+    {
+        if (_watcher is null || _trackItem is null || _overlay is null)
         {
             return;
         }
@@ -89,46 +125,51 @@ public partial class App : Application
         if (_tracking)
         {
             _watcher.Stop();
+            _foregroundTimer?.Stop();
             _tracking = false;
-            item.Text = "开始跟踪 Taskmgr（M1）";
+            _trackItem.Text = "开始跟踪 Taskmgr";
+            _overlay.ApplyRoi(null);
+            UpdateTrayTip(null);
         }
         else
         {
             _watcher.Start();
+            _foregroundTimer?.Start();
             _tracking = true;
-            item.Text = "停止跟踪 Taskmgr";
-            Forms.MessageBox.Show(
-                "跟踪已开启（M0 占位）。M1 将定位 CvChartWindow 并钉住 Overlay。",
-                "CPURacer",
-                Forms.MessageBoxButtons.OK,
-                Forms.MessageBoxIcon.Information);
+            _trackItem.Text = "停止跟踪 Taskmgr";
+            // Immediate probe so UI updates without waiting for first timer tick race.
+            var roi = TaskmgrWatcher.FindLargestChartRoi();
+            OnRoiChanged(roi);
         }
     }
 
-    private void ToggleOverlay(Forms.ToolStripMenuItem item)
+    private void ToggleOverlayManual()
     {
-        if (_overlay is null)
+        if (_overlay is null || _overlayItem is null)
         {
             return;
         }
 
-        if (_overlay.IsVisible)
+        if (_overlay.ForceVisible)
         {
             _overlay.HidePlaceholder();
-            item.Checked = false;
-            item.Text = "显示空 Overlay";
+            _overlayItem.Checked = false;
+            _overlayItem.Text = "手动显示 Overlay";
         }
         else
         {
             _overlay.ShowDebugChrome = _debugOverlay;
             _overlay.ShowPlaceholder();
-            item.Checked = true;
-            item.Text = "隐藏空 Overlay";
+            _overlayItem.Checked = true;
+            _overlayItem.Text = "取消手动显示";
         }
     }
 
     private void ExitApp()
     {
+        _foregroundTimer?.Stop();
+        _foregroundTimer = null;
+
         _watcher?.Dispose();
         _watcher = null;
 
@@ -150,6 +191,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _foregroundTimer?.Stop();
         _watcher?.Dispose();
         if (_tray is not null)
         {

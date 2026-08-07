@@ -25,12 +25,21 @@ dotnet run --project CPURacer.App
 
 运行后托盘出现 **CPURacer** 图标（默认系统图标）：
 
-- **显示空 Overlay**：打开红色描边占位透明窗（M0）
-- **开始跟踪 Taskmgr（M1）**：占位，M1 再实现定位
-- **调试描边**：开关 Overlay 调试框
+- **开始跟踪 Taskmgr**：定位最大 `CvChartWindow`，红框 Overlay 钉在 CPU 大图上（需打开「性能 → CPU」并把任务管理器置于前台）
+- **手动显示 Overlay**：强制显示占位窗（不依赖前台）
+- **调试描边**：开关红色调试框
 - **退出**：干净退出
 
 不要求管理员权限（`asInvoker` + PerMonitorV2 DPI）。
+
+### M1 验收步骤
+
+1. 打开任务管理器 → **性能** → **CPU**  
+2. `dotnet run --project CPURacer.App`  
+3. 托盘 → **开始跟踪 Taskmgr**  
+4. 点击任务管理器使其前台：红框应盖住大图；拖动/缩放应跟随  
+5. 切到「进程」：红框应消失（找不到足够大的图）  
+6. 点其它窗口：红框移出屏幕；再点回任务管理器应回来  
 
 ## 参考
 
@@ -43,4 +52,4 @@ dotnet run --project CPURacer.App
 
 ## 状态
 
-**M0 完成**：`src/CPURacer.sln` 可编译；托盘 + 空 Overlay 骨架已就绪。下一步 **M1**（钉住 `CvChartWindow`）。
+**M1 完成**：可跟踪 Taskmgr 最大 `CvChartWindow` 并钉住调试 Overlay。下一步 **M2**（合成帧提取蓝线高度场）。
