@@ -15,47 +15,50 @@
 
 ## 编译与运行
 
-需要：Windows 10/11、[.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)。（M1.5 起若含 C++ 项目，需 VS 2022 生成工具；仍保持**一行构建**，见实施计划 §0.4。）
+需要：Windows 10/11、[Visual Studio 2022](https://visualstudio.microsoft.com/)（含 **MSBuild + Desktop C++ + .NET 桌面**）。
 
-**硬规则：** 开发期只需 IDE「生成」或下面这一行构建；**禁止**构建后再手动复制 DLL/配置。
+**硬规则（§0.4）：** 开发期只需下面**一行**构建；DLL 自动进 App 输出目录，禁止构建后再手工拷贝。
 
 ```powershell
-cd src
-dotnet build CPURacer.sln
-dotnet run --project CPURacer.App
+.\build.cmd
 ```
 
-> M1.5 引入 `TrackNative` 后，若 `dotnet build` 无法编 C++，README 会把上面唯一构建命令改为等价的一行 `msbuild ...` 或根目录 `.\build.cmd`（内部自动处理，仍无手工拷贝）。
+然后运行：
 
-运行后托盘出现 **CPURacer** 图标（默认系统图标）：
+```powershell
+dotnet run --project src\CPURacer.App --no-build
+```
 
-- **开始跟踪 Taskmgr**：定位图表 ROI，红框 Overlay 跟随（需「性能 → CPU」且 Taskmgr 前台；M1 已知：拖动/失焦偏慢、内存页可能误钉 → 由 M1.5 修）
-- **手动显示 Overlay**：强制显示占位窗（不依赖前台）
-- **调试描边**：开关红色调试框
-- **退出**：干净退出
+或在 Visual Studio 中打开 `src/CPURacer.sln` → **生成解决方案** → F5（同上，无需拷 DLL）。
 
-不要求管理员权限（`asInvoker` + PerMonitorV2 DPI）。
+> 勿对含 C++ 的解决方案单独使用 `dotnet build`（dotnet CLI 无法编 vcxproj）。统一用 `.\build.cmd` 或 VS 生成。
 
-### M1 验收步骤
+运行后托盘出现 **CPURacer**：
 
-1. 打开任务管理器 → **性能** → **CPU**  
-2. `dotnet run --project CPURacer.App`  
-3. 托盘 → **开始跟踪 Taskmgr**  
-4. 点击任务管理器使其前台：红框应盖住大图；拖动/缩放应跟随  
-5. 切到「进程」：红框应消失（找不到足够大的图）  
-6. 点其它窗口：红框移出屏幕；再点回任务管理器应回来  
+- **开始跟踪 Taskmgr**：C++ `TrackNative`（WinEvent + CPU 页判定）钉红框；托盘提示含 `native` / `managed`
+- **手动显示 Overlay**：强制显示（忽略前台规则）
+- **调试描边** / **退出**
+
+### M1.5 验收
+
+1. `.\build.cmd` 成功，且存在 `src\CPURacer.App\bin\Debug\net8.0-windows\CPURacer.TrackNative.dll`  
+2. 打开 Taskmgr → **性能 → CPU**，开始跟踪，点 Taskmgr 前台：红框贴大图  
+3. **快速拖动**窗口：红框应紧贴（明显好于 M1）  
+4. 切到 **内存 / GPU**：红框消失  
+5. 切回 **CPU**：红框回来  
+6. Alt+Tab / 点其它窗：红框立刻消失；Taskmgr 仍可见但非前台时也**无**红框  
 
 ## 参考
 
-- `reference/copy-dialog-lunar-lander` — 复制对话框 Lunar Lander（上游叙述链接见调研报告）
-- `reference/TaskmgrPlayer` — Taskmgr 图表 `SetParent` 播视频（跟踪参考）
+- `reference/copy-dialog-lunar-lander` — Overlay + 像素地形参考  
+- `reference/TaskmgrPlayer` — `SetParent` 播视频 / 原生跟随参考  
 
 ## 调研与计划
 
-- 可行性调研：[docs/调研报告.md](docs/调研报告.md)
-- 实施计划（含 **§0.4 一键构建硬规则**、M1.5）：[docs/实施计划.md](docs/实施计划.md)
-- TaskmgrPlayer 调研：[docs/research/TaskmgrPlayer-调研.md](docs/research/TaskmgrPlayer-调研.md)
+- [docs/调研报告.md](docs/调研报告.md)
+- [docs/实施计划.md](docs/实施计划.md)（§0.4 一键构建、M1.5）
+- [docs/research/TaskmgrPlayer-调研.md](docs/research/TaskmgrPlayer-调研.md)
 
 ## 状态
 
-**M1 完成**（有体验债务）。**M1.5 已确认**（C++ 跟踪加固 + 一键构建约束），下一步实现 M1.5；暂不进入 M2。
+**M1.5 实现中/待验收**：`TrackNative` + `build.cmd` 已接入。暂不进入 M2。

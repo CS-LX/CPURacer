@@ -1,6 +1,5 @@
 ﻿using System.Drawing;
 using System.Windows;
-using System.Windows.Threading;
 using CPURacer.Overlay;
 using CPURacer.Taskmgr;
 using Application = System.Windows.Application;
@@ -13,9 +12,9 @@ public partial class App : Application
     private Forms.NotifyIcon? _tray;
     private Forms.ToolStripMenuItem? _trackItem;
     private Forms.ToolStripMenuItem? _overlayItem;
+    private Forms.ToolStripMenuItem? _statusItem;
     private OverlayWindow? _overlay;
     private TaskmgrWatcher? _watcher;
-    private DispatcherTimer? _foregroundTimer;
     private bool _tracking;
     private bool _debugOverlay = true;
 
@@ -26,13 +25,17 @@ public partial class App : Application
 
         _overlay = new OverlayWindow { ShowDebugChrome = _debugOverlay };
         _watcher = new TaskmgrWatcher();
-        _watcher.RoiChanged += roi => Dispatcher.Invoke(() => OnRoiChanged(roi));
-
-        _foregroundTimer = new DispatcherTimer
+        _watcher.RoiChanged += roi =>
         {
-            Interval = TimeSpan.FromMilliseconds(100),
+            if (Dispatcher.CheckAccess())
+            {
+                OnRoiChanged(roi);
+            }
+            else
+            {
+                Dispatcher.BeginInvoke(() => OnRoiChanged(roi));
+            }
         };
-        _foregroundTimer.Tick += (_, _) => _overlay?.TickForeground();
 
         _tray = new Forms.NotifyIcon
         {
@@ -62,6 +65,9 @@ public partial class App : Application
         };
         menu.Items.Add(debugItem);
 
+        _statusItem = new Forms.ToolStripMenuItem("状态: 未跟踪") { Name = "status", Enabled = false };
+        menu.Items.Add(_statusItem);
+
         menu.Items.Add(new Forms.ToolStripSeparator());
 
         var exitItem = new Forms.ToolStripMenuItem("退出");
@@ -71,7 +77,6 @@ public partial class App : Application
         _tray.ContextMenuStrip = menu;
         _tray.DoubleClick += (_, _) => ToggleOverlayManual();
 
-        // Keep a hidden WPF window so the dispatcher stays alive cleanly.
         MainWindow = new Window
         {
             Width = 0,
@@ -88,12 +93,7 @@ public partial class App : Application
 
     private void OnRoiChanged(ChartRoi? roi)
     {
-        if (_overlay is null)
-        {
-            return;
-        }
-
-        _overlay.ApplyRoi(roi);
+        _overlay?.ApplyRoi(roi);
         UpdateTrayTip(roi);
     }
 
@@ -107,12 +107,31 @@ public partial class App : Application
         if (!_tracking)
         {
             _tray.Text = "CPURacer";
+            if (_statusItem is not null)
+            {
+                _statusItem.Text = "状态: 未跟踪";
+            }
+
             return;
         }
 
-        _tray.Text = roi is null
-            ? "CPURacer — 跟踪中（未找到大图）"
-            : $"CPURacer — {roi.Value.Width}x{roi.Value.Height}";
+        var mode = _watcher?.UsingNativeTracker == true ? "native" : "managed";
+        string status;
+        if (roi is null)
+        {
+            status = $"tracking ({mode}, no CPU chart)";
+            _tray.Text = $"CPURacer — {status}";
+        }
+        else
+        {
+            status = $"{roi.Value.Width}x{roi.Value.Height} ({mode}) show={roi.Value.ShouldShow}";
+            _tray.Text = $"CPURacer — {status}";
+        }
+
+        if (_statusItem is not null)
+        {
+            _statusItem.Text = $"状态: {status}";
+        }
     }
 
     private void ToggleTracking()
@@ -125,22 +144,26 @@ public partial class App : Application
         if (_tracking)
         {
             _watcher.Stop();
-            _foregroundTimer?.Stop();
             _tracking = false;
             _trackItem.Text = "开始跟踪 Taskmgr";
             _overlay.ApplyRoi(null);
             UpdateTrayTip(null);
+            return;
         }
-        else
+
+        if (!TrackNativeApi.IsAvailable())
         {
-            _watcher.Start();
-            _foregroundTimer?.Start();
-            _tracking = true;
-            _trackItem.Text = "停止跟踪 Taskmgr";
-            // Immediate probe so UI updates without waiting for first timer tick race.
-            var roi = TaskmgrWatcher.FindLargestChartRoi();
-            OnRoiChanged(roi);
+            Forms.MessageBox.Show(
+                "未找到 CPURacer.TrackNative.dll。\n请先运行仓库根目录的 build.cmd（一行构建），再启动。",
+                "CPURacer",
+                Forms.MessageBoxButtons.OK,
+                Forms.MessageBoxIcon.Warning);
         }
+
+        _watcher.Start();
+        _tracking = true;
+        _trackItem.Text = "停止跟踪 Taskmgr";
+        UpdateTrayTip(_watcher.CurrentRoi);
     }
 
     private void ToggleOverlayManual()
@@ -167,9 +190,6 @@ public partial class App : Application
 
     private void ExitApp()
     {
-        _foregroundTimer?.Stop();
-        _foregroundTimer = null;
-
         _watcher?.Dispose();
         _watcher = null;
 
@@ -191,7 +211,6 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        _foregroundTimer?.Stop();
         _watcher?.Dispose();
         if (_tray is not null)
         {
