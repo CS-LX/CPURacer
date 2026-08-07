@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using CPURacer.Native;
 
 namespace CPURacer.Taskmgr;
@@ -14,36 +15,59 @@ public readonly record struct ChartRoi(
     int Width,
     int Height,
     uint Dpi,
-    int VisibleChartCount)
+    int VisibleChartCount,
+    bool ShouldShow,
+    bool IsCpuPage)
 {
     public long Area => (long)Width * Height;
+
+    public static ChartRoi? FromNative(in TrackRoiState s)
+    {
+        if (s.ChartHwnd == 0 || s.Width <= 0 || s.Height <= 0)
+        {
+            return null;
+        }
+
+        return new ChartRoi(
+            new IntPtr(s.ChartHwnd),
+            new IntPtr(s.MainHwnd),
+            s.Left,
+            s.Top,
+            s.Width,
+            s.Height,
+            s.Dpi == 0 ? 96u : s.Dpi,
+            s.ChartCount,
+            s.ShouldShow != 0,
+            s.IsCpuPage != 0);
+    }
 }
 
 /// <summary>
-/// Discovers Taskmgr.exe and the largest visible CvChartWindow (CPU / performance graph).
+/// Tracks Taskmgr CPU chart via native WinEvent DLL when available; otherwise managed fallback.
 /// </summary>
 public sealed class TaskmgrWatcher : IDisposable
 {
     public const string MainWindowClass = "TaskManagerWindow";
     public const string ChartWindowClass = "CvChartWindow";
 
-    /// <summary>Minimum size to treat a chart as the main performance graph (not a sidebar thumb).</summary>
     public static int MinMainChartWidth { get; set; } = 200;
-
     public static int MinMainChartHeight { get; set; } = 150;
-
-    /// <summary>Polling interval while tracking.</summary>
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromMilliseconds(150);
 
     public event Action<ChartRoi?>? RoiChanged;
 
     public bool IsTracking { get; private set; }
-
+    public bool UsingNativeTracker { get; private set; }
     public ChartRoi? CurrentRoi { get; private set; }
 
     private Timer? _timer;
     private ChartRoi? _lastEmitted;
+    private TrackNativeApi.RoiCallback? _nativeCallback;
+    private GCHandle _callbackHandle;
+    private int _dispatchPosted;
+    private ChartRoi? _pendingRoi;
     private readonly object _gate = new();
+    private SynchronizationContext? _sync;
 
     public void Start()
     {
@@ -55,7 +79,26 @@ public sealed class TaskmgrWatcher : IDisposable
             }
 
             IsTracking = true;
-            _timer = new Timer(_ => PollSafe(), null, TimeSpan.Zero, PollInterval);
+            _sync = SynchronizationContext.Current;
+            _lastEmitted = null;
+
+            if (TrackNativeApi.IsAvailable())
+            {
+                _nativeCallback = OnNativeRoi;
+                _callbackHandle = GCHandle.Alloc(_nativeCallback);
+                var rc = TrackNativeApi.Start(_nativeCallback, IntPtr.Zero);
+                if (rc == 0)
+                {
+                    UsingNativeTracker = true;
+                    return;
+                }
+
+                Debug.WriteLine($"Track_Start failed: {rc}");
+                FreeCallback();
+            }
+
+            UsingNativeTracker = false;
+            _timer = new Timer(_ => PollManagedSafe(), null, TimeSpan.Zero, PollInterval);
         }
     }
 
@@ -64,6 +107,13 @@ public sealed class TaskmgrWatcher : IDisposable
         lock (_gate)
         {
             IsTracking = false;
+            if (UsingNativeTracker)
+            {
+                TrackNativeApi.Stop();
+                UsingNativeTracker = false;
+                FreeCallback();
+            }
+
             _timer?.Dispose();
             _timer = null;
             _lastEmitted = null;
@@ -75,7 +125,62 @@ public sealed class TaskmgrWatcher : IDisposable
 
     public void Dispose() => Stop();
 
-    private void PollSafe()
+    private void FreeCallback()
+    {
+        if (_callbackHandle.IsAllocated)
+        {
+            _callbackHandle.Free();
+        }
+
+        _nativeCallback = null;
+    }
+
+    private void OnNativeRoi(ref TrackRoiState state, IntPtr _)
+    {
+        var roi = ChartRoi.FromNative(in state);
+        // Empty chart_hwnd => clear
+        if (state.ChartHwnd == 0)
+        {
+            roi = null;
+        }
+
+        _pendingRoi = roi;
+        if (Interlocked.Exchange(ref _dispatchPosted, 1) == 1)
+        {
+            return;
+        }
+
+        void Deliver()
+        {
+            Interlocked.Exchange(ref _dispatchPosted, 0);
+            var latest = _pendingRoi;
+            Emit(latest);
+            // If newer state arrived while we were delivering, schedule again.
+            if (!Equals(latest, _pendingRoi) && IsTracking)
+            {
+                if (Interlocked.Exchange(ref _dispatchPosted, 1) == 0)
+                {
+                    PostDeliver();
+                }
+            }
+        }
+
+        void PostDeliver()
+        {
+            if (_sync is not null)
+            {
+                _sync.Post(_ => Deliver(), null);
+            }
+            else
+            {
+                Deliver();
+            }
+        }
+
+        PostDeliver();
+    }
+
+    private void PollManagedSafe()
     {
         try
         {
@@ -84,24 +189,28 @@ public sealed class TaskmgrWatcher : IDisposable
                 return;
             }
 
-            var roi = FindLargestChartRoi();
-            CurrentRoi = roi;
-
-            if (RoiEquals(_lastEmitted, roi))
-            {
-                return;
-            }
-
-            _lastEmitted = roi;
-            RoiChanged?.Invoke(roi);
+            Emit(FindLargestChartRoiManaged());
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"TaskmgrWatcher poll failed: {ex}");
+            Debug.WriteLine($"TaskmgrWatcher managed poll failed: {ex}");
         }
     }
 
-    public static ChartRoi? FindLargestChartRoi()
+    private void Emit(ChartRoi? roi)
+    {
+        CurrentRoi = roi;
+        if (RoiEquals(_lastEmitted, roi))
+        {
+            return;
+        }
+
+        _lastEmitted = roi;
+        RoiChanged?.Invoke(roi);
+    }
+
+    /// <summary>Managed fallback (M1 behavior + foreground flag). Prefer native path.</summary>
+    public static ChartRoi? FindLargestChartRoiManaged()
     {
         var processes = Process.GetProcessesByName("Taskmgr");
         if (processes.Length == 0)
@@ -148,13 +257,9 @@ public sealed class TaskmgrWatcher : IDisposable
                 return null;
             }
 
-            var best = charts
-                .OrderByDescending(c => (long)c.Rect.Width * c.Rect.Height)
-                .First();
-
+            var best = charts.OrderByDescending(c => (long)c.Rect.Width * c.Rect.Height).First();
             if (best.Rect.Width < MinMainChartWidth || best.Rect.Height < MinMainChartHeight)
             {
-                // Only sidebar thumbs (or wrong page) — treat as no main CPU graph.
                 return null;
             }
 
@@ -169,15 +274,9 @@ public sealed class TaskmgrWatcher : IDisposable
                 dpi = 96;
             }
 
-            return new ChartRoi(
-                best.Hwnd,
-                mainHwnd,
-                best.Rect.Left,
-                best.Rect.Top,
-                best.Rect.Width,
-                best.Rect.Height,
-                dpi,
-                charts.Count);
+            var shouldShow = IsForegroundRelated(mainHwnd, best.Hwnd);
+            return new ChartRoi(best.Hwnd, mainHwnd, best.Rect.Left, best.Rect.Top, best.Rect.Width,
+                best.Rect.Height, dpi, charts.Count, shouldShow, IsCpuPage: true);
         }
         finally
         {
@@ -186,6 +285,20 @@ public sealed class TaskmgrWatcher : IDisposable
                 p.Dispose();
             }
         }
+    }
+
+    private static bool IsForegroundRelated(IntPtr mainHwnd, IntPtr chartHwnd)
+    {
+        var fg = NativeMethods.GetForegroundWindow();
+        for (var cur = fg; cur != IntPtr.Zero; cur = NativeMethods.GetParent(cur))
+        {
+            if (cur == mainHwnd || cur == chartHwnd)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static void CollectCharts(IntPtr parent, List<(IntPtr Hwnd, RECT Rect)> charts)
@@ -218,14 +331,6 @@ public sealed class TaskmgrWatcher : IDisposable
             return false;
         }
 
-        var x = a.Value;
-        var y = b.Value;
-        return x.ChartHwnd == y.ChartHwnd
-               && x.MainHwnd == y.MainHwnd
-               && x.Left == y.Left
-               && x.Top == y.Top
-               && x.Width == y.Width
-               && x.Height == y.Height
-               && x.Dpi == y.Dpi;
+        return a.Equals(b);
     }
 }

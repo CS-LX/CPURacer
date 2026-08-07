@@ -15,14 +15,13 @@ public sealed class OverlayWindow : Window
 
     private ChartRoi? _roi;
     private bool _forceVisible;
-    private string _statusText = "CPURacer M1";
+    private string _statusText = "CPURacer M1.5";
 
     public OverlayWindow()
     {
         Title = "CPURacer Overlay";
         AllowsTransparency = true;
         WindowStyle = WindowStyle.None;
-        // Alpha must be >= 1 or clicks pass through.
         Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0));
         Topmost = true;
         ShowInTaskbar = false;
@@ -36,10 +35,8 @@ public sealed class OverlayWindow : Window
 
     public bool ShowDebugChrome { get; set; }
 
-    /// <summary>Manual plot inset in physical pixels (M1; refine in M2).</summary>
     public Thickness PlotInsetPx { get; set; } = new(0, 0, 0, 0);
 
-    /// <summary>When true, keep overlay on-screen even if Taskmgr is not foreground (manual preview).</summary>
     public bool ForceVisible
     {
         get => _forceVisible;
@@ -55,12 +52,14 @@ public sealed class OverlayWindow : Window
         _roi = roi;
         if (roi is null)
         {
-            _statusText = "CPURacer M1 — no chart";
+            _statusText = "CPURacer M1.5 — no CPU chart";
             Sleep();
             return;
         }
 
-        _statusText = $"CPURacer M1 — {roi.Value.Width}x{roi.Value.Height} dpi={roi.Value.Dpi} charts={roi.Value.VisibleChartCount}";
+        var r = roi.Value;
+        _statusText =
+            $"CPURacer M1.5 — {r.Width}x{r.Height} dpi={r.Dpi} charts={r.VisibleChartCount} show={r.ShouldShow} cpu={r.IsCpuPage}";
         if (!IsVisible)
         {
             Show();
@@ -68,14 +67,6 @@ public sealed class OverlayWindow : Window
 
         ApplyPlacement();
         InvalidateVisual();
-    }
-
-    public void TickForeground()
-    {
-        if (_roi is not null)
-        {
-            ApplyPlacement();
-        }
     }
 
     public void ShowPlaceholder()
@@ -87,7 +78,7 @@ public sealed class OverlayWindow : Window
             Height = 200;
             Left = 120;
             Top = 120;
-            _statusText = "CPURacer M1 — manual overlay";
+            _statusText = "CPURacer M1.5 — manual overlay";
             Show();
             Activate();
             InvalidateVisual();
@@ -107,7 +98,6 @@ public sealed class OverlayWindow : Window
     public void Sleep()
     {
         Top = OffscreenTop;
-        // Keep window "shown" for HWND stability but off-screen when tracking.
         if (!IsVisible && _roi is not null)
         {
             Show();
@@ -172,7 +162,8 @@ public sealed class OverlayWindow : Window
         Width = width;
         Height = height;
 
-        var show = _forceVisible || ShouldShowForForeground(roi);
+        // Native ShouldShow already encodes foreground; ForceVisible overrides for manual preview.
+        var show = _forceVisible || roi.ShouldShow;
         Top = show ? top : OffscreenTop;
 
         if (!IsVisible)
@@ -181,41 +172,5 @@ public sealed class OverlayWindow : Window
         }
 
         InvalidateVisual();
-    }
-
-    private bool ShouldShowForForeground(ChartRoi roi)
-    {
-        var foreground = NativeMethods.GetForegroundWindow();
-        if (foreground == IntPtr.Zero)
-        {
-            return false;
-        }
-
-        var helper = new WindowInteropHelper(this);
-        if (helper.Handle != IntPtr.Zero && foreground == helper.Handle)
-        {
-            return true;
-        }
-
-        if (foreground == roi.MainHwnd || foreground == roi.ChartHwnd)
-        {
-            return true;
-        }
-
-        // Walk parents — Taskmgr chrome / XAML hosts may be foreground children.
-        var current = foreground;
-        for (var i = 0; i < 16 && current != IntPtr.Zero; i++)
-        {
-            if (current == roi.MainHwnd)
-            {
-                return true;
-            }
-
-            current = NativeMethods.GetParent(current);
-        }
-
-        // Same process check: if foreground belongs to Taskmgr main window's process tree via parent walk failed,
-        // also accept when foreground is a child of main by Enum — GetParent walk should cover most cases.
-        return false;
     }
 }
