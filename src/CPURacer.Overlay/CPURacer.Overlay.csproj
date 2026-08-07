@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>CPURacer.Overlay</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CPURacer.Capture\CPURacer.Capture.csproj" />
+    <ProjectReference Include="..\CPURacer.Game\CPURacer.Game.csproj" />
+    <ProjectReference Include="..\CPURacer.Taskmgr\CPURacer.Taskmgr.csproj" />
+    <ProjectReference Include="..\CPURacer.Native\CPURacer.Native.csproj" />
+  </ItemGroup>
+
+</Project>

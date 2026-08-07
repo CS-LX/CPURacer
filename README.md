@@ -13,6 +13,25 @@
 
 详见 [docs/调研报告.md](docs/调研报告.md) 第 1.2、5 章。
 
+## 编译与运行
+
+需要：Windows 10/11、[.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)。
+
+```powershell
+cd src
+dotnet build CPURacer.sln
+dotnet run --project CPURacer.App
+```
+
+运行后托盘出现 **CPURacer** 图标（默认系统图标）：
+
+- **显示空 Overlay**：打开红色描边占位透明窗（M0）
+- **开始跟踪 Taskmgr（M1）**：占位，M1 再实现定位
+- **调试描边**：开关 Overlay 调试框
+- **退出**：干净退出
+
+不要求管理员权限（`asInvoker` + PerMonitorV2 DPI）。
+
 ## 参考
 
 `reference/copy-dialog-lunar-lander` — 参考项目源码（用于学习窗口叠加与交互实现）。
@@ -24,4 +43,4 @@
 
 ## 状态
 
-空仓库骨架；调研与实施计划已完成，游戏工程尚未开始（下一步 M0 工程骨架）。
+**M0 完成**：`src/CPURacer.sln` 可编译；托盘 + 空 Overlay 骨架已就绪。下一步 **M1**（钉住 `CvChartWindow`）。
