@@ -1,0 +1,23 @@
+# Build
+bin/
+obj/
+out/
+build/
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.obj
+
+# IDE / OS
+.vs/
+.idea/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+
+# Local
+*.log
+.env
+.env.*
