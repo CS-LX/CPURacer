@@ -1,3 +1,6 @@
 [submodule "reference/copy-dialog-lunar-lander"]
 	path = reference/copy-dialog-lunar-lander
 	url = https://github.com/CS-LX/copy-dialog-lunar-lander.git
+[submodule "reference/TaskmgrPlayer"]
+	path = reference/TaskmgrPlayer
+	url = https://github.com/svr2kos2/TaskmgrPlayer.git
