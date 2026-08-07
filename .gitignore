@@ -16,6 +16,13 @@ build/
 *.suo
 .DS_Store
 Thumbs.db
+*.DotSettings.user
+
+# .NET
+**/bin/
+**/obj/
+*.userprefs
+project.lock.json
 
 # Local
 *.log
