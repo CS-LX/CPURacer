@@ -11,6 +11,11 @@ public readonly struct CarState
         float halfWidth,
         float halfHeight,
         float speedPxPerSec,
+        float distanceMeters,
+        float bestDistanceMeters,
+        byte accentB,
+        byte accentG,
+        byte accentR,
         bool isDead,
         bool controlsDisabled,
         bool isRunning,
@@ -23,33 +28,31 @@ public readonly struct CarState
         HalfWidth = halfWidth;
         HalfHeight = halfHeight;
         SpeedPxPerSec = speedPxPerSec;
+        DistanceMeters = distanceMeters;
+        BestDistanceMeters = bestDistanceMeters;
+        AccentB = accentB;
+        AccentG = accentG;
+        AccentR = accentR;
         IsDead = isDead;
         ControlsDisabled = controlsDisabled;
         IsRunning = isRunning;
         Hud = hud;
     }
 
-    /// <summary>Chassis center X in frame pixels (includes left inset).</summary>
     public float ChassisX { get; }
-
-    /// <summary>Chassis center Y from top of frame (pixels).</summary>
     public float ChassisYFromTop { get; }
-
     public float AngleRad { get; }
-
     public float WheelRadius { get; }
-
     public float HalfWidth { get; }
-
     public float HalfHeight { get; }
-
     public float SpeedPxPerSec { get; }
-
+    public float DistanceMeters { get; }
+    public float BestDistanceMeters { get; }
+    public byte AccentB { get; }
+    public byte AccentG { get; }
+    public byte AccentR { get; }
     public bool IsDead { get; }
-
     public bool ControlsDisabled { get; }
-
     public bool IsRunning { get; }
-
     public string Hud { get; }
 }

@@ -51,6 +51,7 @@ public sealed class NativeExternalOverlay : IDisposable
     private ID2D1HwndRenderTarget? _renderTarget;
     private ID2D1SolidColorBrush? _orangeBrush;
     private ID2D1SolidColorBrush? _redBrush;
+    private ID2D1SolidColorBrush? _hudBrush;
     private ID2D1SolidColorBrush? _carBrush;
     private ID2D1SolidColorBrush? _carFlippedBrush;
     private ID2D1SolidColorBrush? _carDeadBrush;
@@ -66,9 +67,9 @@ public sealed class NativeExternalOverlay : IDisposable
         CreateWindow();
     }
 
-    public bool ShowDebugChrome { get; set; } = true;
+    public bool ShowDebugChrome { get; set; }
 
-    public bool ShowFitPolyline { get; set; } = true;
+    public bool ShowFitPolyline { get; set; }
 
     public bool ForceVisible { get; set; }
 
@@ -111,6 +112,9 @@ public sealed class NativeExternalOverlay : IDisposable
         ThrowIfDisposed();
         _carPose = pose;
     }
+
+    /// <summary>Player banner when not racing (idle tip). Cleared by caller when racing.</summary>
+    public string? PlayerBanner { get; set; }
 
     public void ClearRoi() => ApplyRoi(null);
 
@@ -255,7 +259,7 @@ public sealed class NativeExternalOverlay : IDisposable
         _d2dFactory = D2D1.D2D1CreateFactory<ID2D1Factory>(FactoryType.SingleThreaded, DebugLevel.None);
         _writeFactory = DWrite.DWriteCreateFactory<IDWriteFactory>(WriteFactoryType.Shared);
         _textFormat = _writeFactory.CreateTextFormat(
-            "Segoe UI",
+            "Consolas",
             null,
             FontWeight.Normal,
             FontStyle.Normal,
@@ -331,12 +335,14 @@ public sealed class NativeExternalOverlay : IDisposable
         _renderTarget = _d2dFactory!.CreateHwndRenderTarget(properties, hwndProperties);
         _orangeBrush = _renderTarget.CreateSolidColorBrush(new Color4(1f, 0.55f, 0f, 0.9f));
         _redBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.86f, 0.24f, 0.24f, 0.9f));
-        _carBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.16f, 0.78f, 0.35f, 0.86f));
-        _carFlippedBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.86f, 0.55f, 0.16f, 0.82f));
-        _carDeadBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.71f, 0.16f, 0.16f, 0.78f));
-        _cabinBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.94f, 0.94f, 0.94f, 0.78f));
-        _wheelBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.12f, 0.12f, 0.12f, 0.9f));
-        _strokeBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.08f, 0.08f, 0.08f, 0.94f));
+        _hudBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.98f, 0.96f, 0.88f, 0.95f));
+        // Play palette: warm white body, readable on Taskmgr blue chart.
+        _carBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.96f, 0.94f, 0.88f, 0.92f));
+        _carFlippedBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.95f, 0.72f, 0.28f, 0.9f));
+        _carDeadBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.75f, 0.28f, 0.28f, 0.88f));
+        _cabinBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.35f, 0.55f, 0.72f, 0.85f));
+        _wheelBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.12f, 0.12f, 0.12f, 0.92f));
+        _strokeBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.12f, 0.12f, 0.14f, 0.95f));
     }
 
     private void RenderFrame()
@@ -367,10 +373,15 @@ public sealed class NativeExternalOverlay : IDisposable
 
         if (_carPose is { } car)
         {
+            ApplyAccent(car.AccentB, car.AccentG, car.AccentR);
             DrawCar(target, car);
         }
+        else if (_heightField is { } hf)
+        {
+            ApplyAccent(hf.AccentB, hf.AccentG, hf.AccentR);
+        }
 
-        if (ShowDebugChrome || _carPose is not null)
+        if (ShowDebugChrome)
         {
             target.DrawRectangle(
                 new Rect(1, 1, Math.Max(1, _pixelWidth - 2), Math.Max(1, _pixelHeight - 2)),
@@ -387,8 +398,20 @@ public sealed class NativeExternalOverlay : IDisposable
             target.DrawText(
                 status,
                 _textFormat!,
-                new Rect(10, 8, Math.Max(20, _pixelWidth - 10), 40),
+                new Rect(10, 8, Math.Max(20, _pixelWidth - 10), 48),
                 _redBrush!);
+        }
+        else
+        {
+            var line = _carPose is { } pose ? pose.Hud : PlayerBanner;
+            if (!string.IsNullOrEmpty(line))
+            {
+                target.DrawText(
+                    line,
+                    _textFormat!,
+                    new Rect(10, 8, Math.Max(20, _pixelWidth - 10), 48),
+                    _hudBrush!);
+            }
         }
 
         try
@@ -399,6 +422,37 @@ public sealed class NativeExternalOverlay : IDisposable
         {
             DisposeRenderTarget();
         }
+    }
+
+    /// <summary>Tint play brushes from Taskmgr stroke (lunar-lander OverrideColor pattern).</summary>
+    private void ApplyAccent(byte b, byte g, byte r)
+    {
+        if (_hudBrush is null || _carBrush is null || _cabinBrush is null
+            || _carFlippedBrush is null || _carDeadBrush is null)
+        {
+            return;
+        }
+
+        var rf = r / 255f;
+        var gf = g / 255f;
+        var bf = b / 255f;
+        _hudBrush.Color = new Color4(rf, gf, bf, 0.96f);
+        _carBrush.Color = new Color4(
+            System.Math.Min(1f, (rf * 0.5f) + 0.5f),
+            System.Math.Min(1f, (gf * 0.5f) + 0.5f),
+            System.Math.Min(1f, (bf * 0.5f) + 0.5f),
+            0.92f);
+        _cabinBrush.Color = new Color4(rf * 0.85f, gf * 0.85f, bf * 0.85f, 0.9f);
+        _carFlippedBrush.Color = new Color4(
+            System.Math.Min(1f, rf + 0.35f),
+            System.Math.Min(1f, gf + 0.15f),
+            bf * 0.45f,
+            0.9f);
+        _carDeadBrush.Color = new Color4(
+            System.Math.Min(1f, rf * 0.4f + 0.45f),
+            gf * 0.25f,
+            bf * 0.25f,
+            0.88f);
     }
 
     private void DrawCar(ID2D1HwndRenderTarget target, CarState car)
@@ -523,6 +577,7 @@ public sealed class NativeExternalOverlay : IDisposable
     {
         _orangeBrush?.Dispose();
         _redBrush?.Dispose();
+        _hudBrush?.Dispose();
         _carBrush?.Dispose();
         _carFlippedBrush?.Dispose();
         _carDeadBrush?.Dispose();
@@ -532,6 +587,7 @@ public sealed class NativeExternalOverlay : IDisposable
         _renderTarget?.Dispose();
         _orangeBrush = null;
         _redBrush = null;
+        _hudBrush = null;
         _carBrush = null;
         _carFlippedBrush = null;
         _carDeadBrush = null;

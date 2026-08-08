@@ -18,9 +18,10 @@ public sealed class OverlayWindow : Window
 
     private ChartRoi? _roi;
     private bool _forceVisible;
-    private bool _showDebugChrome = true;
-    private bool _showFitPolyline = true;
+    private bool _showDebugChrome;
+    private bool _showFitPolyline;
     private string _statusText = "CPURacer";
+    private string? _playerBanner;
     private TrackFollowMode _followMode = TrackFollowMode.External;
     private IntPtr _attachedParent = IntPtr.Zero;
     private bool _childStylesApplied;
@@ -181,6 +182,17 @@ public sealed class OverlayWindow : Window
     }
 
     /// <summary>Draw-only car pose. Does not affect placement or capture.</summary>
+    /// <summary>Player banner when not racing (idle tip).</summary>
+    public string? PlayerBanner
+    {
+        get => _playerBanner;
+        set
+        {
+            _playerBanner = value;
+            RebuildBackingStore();
+        }
+    }
+
     public void SetCarPose(CarState? pose)
     {
         _carPose = pose;
@@ -242,12 +254,22 @@ public sealed class OverlayWindow : Window
                     DrawFitPolyline(dc, field, drawW, drawH);
                 }
 
+                byte ab = 212, ag = 120, ar = 0;
                 if (_carPose is { } car)
                 {
+                    ab = car.AccentB;
+                    ag = car.AccentG;
+                    ar = car.AccentR;
                     DrawCar(dc, car, drawW, drawH);
                 }
+                else if (_heightField is { } hf)
+                {
+                    ab = hf.AccentB;
+                    ag = hf.AccentG;
+                    ar = hf.AccentR;
+                }
 
-                if (ShowDebugChrome || _carPose is not null)
+                if (ShowDebugChrome)
                 {
                     var pen = new Pen(new SolidColorBrush(Color.FromArgb(200, 220, 60, 60)), 2);
                     dc.DrawRectangle(
@@ -263,11 +285,27 @@ public sealed class OverlayWindow : Window
                         status,
                         System.Globalization.CultureInfo.CurrentUICulture,
                         FlowDirection.LeftToRight,
-                        new Typeface("Segoe UI"),
-                        13,
+                        new Typeface("Consolas"),
+                        12,
                         new SolidColorBrush(Color.FromArgb(230, 220, 60, 60)),
                         VisualTreeHelper.GetDpi(this).PixelsPerDip);
                     dc.DrawText(text, new Point(10, 8));
+                }
+                else
+                {
+                    var line = _carPose is { } pose ? pose.Hud : _playerBanner;
+                    if (!string.IsNullOrEmpty(line))
+                    {
+                        var text = new FormattedText(
+                            line!,
+                            System.Globalization.CultureInfo.CurrentUICulture,
+                            FlowDirection.LeftToRight,
+                            new Typeface("Consolas"),
+                            13,
+                            new SolidColorBrush(Color.FromArgb(245, ar, ag, ab)),
+                            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+                        dc.DrawText(text, new Point(8, 6));
+                    }
                 }
             }
         }
@@ -329,20 +367,29 @@ public sealed class OverlayWindow : Window
         var hh = car.HalfHeight * sy;
         var wr = car.WheelRadius * Math.Min(sx, sy);
 
+        var ar = car.AccentR;
+        var ag = car.AccentG;
+        var ab = car.AccentB;
         var fill = car.IsDead
-            ? new SolidColorBrush(Color.FromArgb(200, 180, 40, 40))
+            ? new SolidColorBrush(Color.FromArgb(225, (byte)Math.Min(255, ar / 2 + 120), (byte)(ag / 4), (byte)(ab / 4)))
             : car.ControlsDisabled
-                ? new SolidColorBrush(Color.FromArgb(210, 220, 140, 40))
-                : new SolidColorBrush(Color.FromArgb(220, 40, 200, 90));
-        var stroke = new Pen(new SolidColorBrush(Color.FromArgb(240, 20, 20, 20)), 1.5);
+                ? new SolidColorBrush(Color.FromArgb(230, (byte)Math.Min(255, ar + 80), (byte)Math.Min(255, ag + 40), (byte)(ab / 2)))
+                : new SolidColorBrush(Color.FromArgb(
+                    235,
+                    (byte)Math.Min(255, (ar / 2) + 128),
+                    (byte)Math.Min(255, (ag / 2) + 128),
+                    (byte)Math.Min(255, (ab / 2) + 128)));
+        var stroke = new Pen(new SolidColorBrush(Color.FromArgb(240, 30, 30, 36)), 1.5);
         fill.Freeze();
         stroke.Freeze();
 
         var deg = -car.AngleRad * 180.0 / Math.PI;
         dc.PushTransform(new RotateTransform(deg, cx, cy));
         dc.DrawRectangle(fill, stroke, new Rect(cx - hw, cy - hh, hw * 2, hh * 2));
+        var cabin = new SolidColorBrush(Color.FromArgb(220, ar, ag, ab));
+        cabin.Freeze();
         dc.DrawRectangle(
-            new SolidColorBrush(Color.FromArgb(200, 240, 240, 240)),
+            cabin,
             stroke,
             new Rect(cx - hw * 0.35, cy - hh * 1.6, hw * 0.9, hh * 0.7));
         dc.Pop();
