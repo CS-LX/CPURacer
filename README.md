@@ -39,6 +39,7 @@ dotnet run --project src\CPURacer.App --no-build
 - **跟随方式**
   - **外部 Overlay（WinEvent）**：原生 Win32 + Direct2D，点击穿透、不激活，Z 序紧贴 Taskmgr（默认）
   - **子窗 SetParent（TaskmgrPlayer 式）**：透明 Overlay `SetParent` 进图表，客户区 `MoveWindow(0,0,w,h)`，拖动跟随更跟手
+- **开始比赛** / **重开（Space）**：非侵入 RaceHost（旁路时钟）；W/↑ 油门、S/↓ 刹车
 - **手动显示 Overlay** / **调试描边** / **退出**
 
 ### M1.5 验收
@@ -64,11 +65,13 @@ dotnet run --project src\CPURacer.App --no-build
 - [docs/实施计划.md](docs/实施计划.md)（§0.4 一键构建、M1.5 / M2.5）
 - [docs/research/TaskmgrPlayer-调研.md](docs/research/TaskmgrPlayer-调研.md)
 - [docs/research/M2.5-Overlay主循环对齐.md](docs/research/M2.5-Overlay主循环对齐.md)
+- [docs/research/M3-物理赛车.md](docs/research/M3-物理赛车.md)
 
 ## 状态
 
 **M2.6.2 已通过**：External 已迁移到原生 Win32 + Direct2D，使用独立 Dispatcher 帧时钟；因普通权限下跨进程相对 Z 序被 Windows 拒绝，采用原生 Topmost + 前台进程显隐。WPF 仅保留 Child。见 [M2.6 迁移笔记](docs/research/M2.6-原生ExternalOverlay迁移.md)。
-M2 拟合仍可用；M3 物理在 stash，可在 Overlay 门禁稳定后恢复。
+
+**M3 正在实施（非侵入）**：物理在旁路 RaceHost；Overlay 只提供高度场出口与 `SetCarPose` 画车入口，不改 `TickExternalFrame` 承重逻辑。见 [M3-物理赛车.md](docs/research/M3-物理赛车.md)。
 
 ### M2 / M2.5 快速试跑
 

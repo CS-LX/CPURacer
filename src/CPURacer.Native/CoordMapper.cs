@@ -1,7 +1,8 @@
 namespace CPURacer.Native;
 
 /// <summary>
-/// Converts between physical pixels and WPF device-independent units.
+/// Converts between physical pixels, WPF DIU, and race world coordinates.
+/// World origin is the plot's bottom-left; +Y is up (1 unit = 1 plot pixel).
 /// </summary>
 public static class CoordMapper
 {
@@ -28,4 +29,12 @@ public static class CoordMapper
             PixelsToDiu(widthPx, dpi),
             PixelsToDiu(heightPx, dpi));
     }
+
+    /// <summary>Frame Y-from-top → world Y (plot bottom = 0).</summary>
+    public static float FrameYFromTopToWorldY(float yFromTop, int insetTop, int plotHeight)
+        => plotHeight - (yFromTop - insetTop);
+
+    /// <summary>World Y → frame Y-from-top.</summary>
+    public static float WorldYToFrameYFromTop(float worldY, int insetTop, int plotHeight)
+        => insetTop + (plotHeight - worldY);
 }

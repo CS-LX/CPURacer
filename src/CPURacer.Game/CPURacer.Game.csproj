@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net8.0-windows</TargetFramework>
@@ -8,7 +8,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\CPURacer.Capture\CPURacer.Capture.csproj" />
     <ProjectReference Include="..\CPURacer.Native\CPURacer.Native.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Package id is Box2D.NetStandard; 1.0.4 exposes the legacy Box2DX API. -->
+    <PackageReference Include="Box2D.NetStandard" Version="1.0.4" />
   </ItemGroup>
 
 </Project>

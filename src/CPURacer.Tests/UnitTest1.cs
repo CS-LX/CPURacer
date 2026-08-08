@@ -25,6 +25,17 @@ public class CoordMapperTests
         Assert.Equal(500, w, 3);
         Assert.Equal(300, h, 3);
     }
+
+    [Fact]
+    public void FrameYFromTop_RoundTrips_ToWorldY()
+    {
+        const int insetTop = 4;
+        const int plotH = 100;
+        const float yFromTop = 54f;
+        var worldY = CoordMapper.FrameYFromTopToWorldY(yFromTop, insetTop, plotH);
+        Assert.Equal(50f, worldY, precision: 3);
+        Assert.Equal(yFromTop, CoordMapper.WorldYToFrameYFromTop(worldY, insetTop, plotH), precision: 3);
+    }
 }
 
 public class NativeSmokeTests
