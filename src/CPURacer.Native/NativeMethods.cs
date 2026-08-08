@@ -14,7 +14,6 @@ public static class NativeMethods
     public const int WsBorder = 0x00800000;
     public const int WsSysMenu = 0x00080000;
     public const int WsExLayered = 0x00080000;
-    public const int WsExTransparent = 0x00000020;
     public const int WsExNoActivate = 0x08000000;
     public const int WsExToolWindow = 0x00000080;
     public const uint WdaExcludeFromCapture = 0x00000011;
@@ -35,9 +34,6 @@ public static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-
-    [DllImport("user32.dll")]
-    public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
 
     [DllImport("user32.dll")]
     public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
@@ -79,14 +75,13 @@ public static class NativeMethods
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
 
     public const int SwHide = 0;
     public const int SwShow = 5;
     public const uint SwpNoZOrder = 0x0004;
     public const uint SwpNoActivate = 0x0010;
-    public const uint SwpShowWindow = 0x0040;
     public const uint SwpFrameChanged = 0x0020;
 
     public static string GetClassName(IntPtr hWnd)

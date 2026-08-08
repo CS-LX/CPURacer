@@ -1,5 +1,7 @@
 ﻿using System.Drawing;
+using System.Diagnostics;
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Threading;
 using CPURacer.Capture;
 using CPURacer.Overlay;
@@ -18,6 +20,7 @@ public partial class App : Application
     private Forms.ToolStripMenuItem? _followExternalItem;
     private Forms.ToolStripMenuItem? _followChildItem;
     private OverlayWindow? _overlay;
+    private NativeExternalOverlay? _nativeOverlay;
     private TaskmgrWatcher? _watcher;
     private bool _debugOverlay = true;
     private bool _showFitPolyline = true;
@@ -26,8 +29,11 @@ public partial class App : Application
     private readonly ScreenRoiCapture _capture = new();
     private readonly HeightFieldExtractor _extractor = new();
     private DispatcherTimer? _captureTimer;
+    private bool _externalLoopHooked;
     private int _captureFailStreak;
+    private int _externalFrameFailStreak;
     private string _capStatus = "";
+    private int _trayTipFrame;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -38,7 +44,12 @@ public partial class App : Application
         {
             ShowDebugChrome = _debugOverlay,
             ShowFitPolyline = _showFitPolyline,
-            FollowMode = _followMode,
+            FollowMode = TrackFollowMode.Child,
+        };
+        _nativeOverlay = new NativeExternalOverlay
+        {
+            ShowDebugChrome = _debugOverlay,
+            ShowFitPolyline = _showFitPolyline,
         };
         _watcher = new TaskmgrWatcher();
         _watcher.SetFollowMode(_followMode);
@@ -54,13 +65,12 @@ public partial class App : Application
             }
         };
 
+        // Child mode only: External uses CompositionTarget (copy-dialog-style).
         _captureTimer = new DispatcherTimer(DispatcherPriority.Render)
         {
-            // 80 ms was directly visible as ~0.1 s lag behind Taskmgr's advancing edge.
-            // 30 Hz keeps latency below one display frame or two without busy polling.
             Interval = TimeSpan.FromMilliseconds(33),
         };
-        _captureTimer.Tick += (_, _) => CaptureTick();
+        _captureTimer.Tick += (_, _) => CaptureTickChild();
 
         BuildTray();
 
@@ -114,7 +124,11 @@ public partial class App : Application
             if (_overlay is not null)
             {
                 _overlay.ShowDebugChrome = _debugOverlay;
-                _overlay.InvalidateVisual();
+            }
+
+            if (_nativeOverlay is not null)
+            {
+                _nativeOverlay.ShowDebugChrome = _debugOverlay;
             }
         };
         menu.Items.Add(debugItem);
@@ -126,7 +140,11 @@ public partial class App : Application
             if (_overlay is not null)
             {
                 _overlay.ShowFitPolyline = _showFitPolyline;
-                _overlay.InvalidateVisual();
+            }
+
+            if (_nativeOverlay is not null)
+            {
+                _nativeOverlay.ShowFitPolyline = _showFitPolyline;
             }
         };
         menu.Items.Add(fitItem);
@@ -143,9 +161,15 @@ public partial class App : Application
         _tray.DoubleClick += (_, _) => ToggleOverlayManual();
     }
 
-    private void CaptureTick()
+    /// <summary>Child-only capture path (External uses TickExternalFrame).</summary>
+    private void CaptureTickChild()
     {
         if (_overlay is null || _watcher is null || !_watcher.IsTracking)
+        {
+            return;
+        }
+
+        if (_followMode != TrackFollowMode.Child)
         {
             return;
         }
@@ -160,15 +184,12 @@ public partial class App : Application
             return;
         }
 
-        // Overlay is excluded from capture at the HWND level; never hide/show it per tick.
         var frame = _capture.TryCapture(roi.Value);
 
         if (frame is null)
         {
             _captureFailStreak++;
             _capStatus = $"cap=fail({_captureFailStreak})";
-            // Treat one or two failures like skipped composition frames. Clearing
-            // immediately would blink at 30 Hz; sustained failure must clear stale terrain.
             if (_captureFailStreak < 3)
             {
                 _overlay.SetCaptureStatus(_capStatus);
@@ -186,9 +207,6 @@ public partial class App : Application
         var field = _extractor.Extract(frame);
         if (field is null)
         {
-            // Keep the last reliable contour when BitBlt catches Taskmgr between
-            // composition passes. Clearing or using a synthetic fallback causes
-            // the visible fit to alternate between the line and a high plateau.
             _capStatus = "cap=ok extract=skip";
             _overlay.SetCaptureStatus(_capStatus);
         }
@@ -201,6 +219,88 @@ public partial class App : Application
         UpdateTrayTip(roi);
     }
 
+    private void OnExternalRendering(object? sender, EventArgs e)
+    {
+        if (_nativeOverlay is null || _watcher is null || !_watcher.IsTracking)
+        {
+            return;
+        }
+
+        if (_followMode != TrackFollowMode.External)
+        {
+            return;
+        }
+
+        try
+        {
+            _nativeOverlay.TickExternalFrame(_capture, _extractor);
+            _externalFrameFailStreak = 0;
+        }
+        catch (Exception ex)
+        {
+            // Match copy-dialog's frame-level isolation: one transient placement/
+            // drawing failure must not tear down WPF's global Rendering chain.
+            // Keep the previous backing frame and retry on the next composition frame.
+            _externalFrameFailStreak++;
+            if (_externalFrameFailStreak == 1 || _externalFrameFailStreak % 60 == 0)
+            {
+                Debug.WriteLine(
+                    $"External overlay frame failed ({_externalFrameFailStreak}): {ex}");
+            }
+
+            return;
+        }
+
+        // Throttle tray text updates; NotifyIcon churn every frame is expensive.
+        if ((++_trayTipFrame & 15) == 0)
+        {
+            UpdateTrayTip(_watcher.CurrentRoi);
+        }
+    }
+
+    private void SyncPipelineClocks()
+    {
+        if (_watcher?.IsTracking != true)
+        {
+            StopExternalLoop();
+            _captureTimer?.Stop();
+            return;
+        }
+
+        if (_followMode == TrackFollowMode.External)
+        {
+            _captureTimer?.Stop();
+            StartExternalLoop();
+        }
+        else
+        {
+            StopExternalLoop();
+            _captureTimer?.Start();
+        }
+    }
+
+    private void StartExternalLoop()
+    {
+        if (_externalLoopHooked)
+        {
+            return;
+        }
+
+        CompositionTarget.Rendering += OnExternalRendering;
+        _externalLoopHooked = true;
+    }
+
+    private void StopExternalLoop()
+    {
+        if (!_externalLoopHooked)
+        {
+            return;
+        }
+
+        CompositionTarget.Rendering -= OnExternalRendering;
+        _externalLoopHooked = false;
+    }
+
     private void SetFollowMode(TrackFollowMode mode)
     {
         if (_followMode == mode)
@@ -211,15 +311,25 @@ public partial class App : Application
 
         _followMode = mode;
         _watcher?.SetFollowMode(mode);
-        if (_overlay is not null)
+        if (_watcher?.IsTracking == true)
         {
-            _overlay.FollowMode = mode;
-            if (_watcher?.IsTracking == true)
+            if (mode == TrackFollowMode.External)
             {
-                _overlay.ApplyRoi(_watcher.CurrentRoi);
+                _overlay?.ClearRoi();
+                _nativeOverlay?.ApplyRoi(_watcher.CurrentRoi);
+            }
+            else
+            {
+                _nativeOverlay?.ClearRoi();
+                if (_overlay is not null)
+                {
+                    _overlay.FollowMode = TrackFollowMode.Child;
+                    _overlay.ApplyRoi(_watcher.CurrentRoi);
+                }
             }
         }
 
+        SyncPipelineClocks();
         SyncFollowMenu();
         UpdateTrayTip(_watcher?.CurrentRoi);
     }
@@ -239,7 +349,15 @@ public partial class App : Application
 
     private void OnRoiChanged(ChartRoi? roi)
     {
-        _overlay?.ApplyRoi(roi);
+        if (_followMode == TrackFollowMode.External)
+        {
+            _nativeOverlay?.ApplyRoi(roi);
+        }
+        else
+        {
+            _overlay?.ApplyRoi(roi);
+        }
+
         UpdateTrayTip(roi);
     }
 
@@ -270,8 +388,14 @@ public partial class App : Application
         }
         else
         {
+            var show = _followMode == TrackFollowMode.External && _nativeOverlay is not null
+                ? _nativeOverlay.IsVisible
+                : roi.Value.ShouldShow;
+            var cap = _followMode == TrackFollowMode.External && _nativeOverlay is not null
+                ? _nativeOverlay.DiagnosticStatus
+                : _capStatus;
             status =
-                $"{roi.Value.Width}x{roi.Value.Height} ({backend}/{follow}) show={roi.Value.ShouldShow} {_capStatus}";
+                $"{roi.Value.Width}x{roi.Value.Height} ({backend}/{follow}) show={show} {cap}";
         }
 
         _tray.Text = $"CPURacer — {status}";
@@ -283,20 +407,27 @@ public partial class App : Application
 
     private void ToggleTracking()
     {
-        if (_watcher is null || _trackItem is null || _overlay is null || _captureTimer is null)
+        if (_watcher is null
+            || _trackItem is null
+            || _overlay is null
+            || _nativeOverlay is null
+            || _captureTimer is null)
         {
             return;
         }
 
         if (_watcher.IsTracking)
         {
+            StopExternalLoop();
             _captureTimer.Stop();
             _watcher.Stop();
             _trackItem.Text = "开始跟踪 Taskmgr";
             _capStatus = "";
             _captureFailStreak = 0;
+            _externalFrameFailStreak = 0;
             _overlay.SetHeightField(null);
-            _overlay.ApplyRoi(null);
+            _overlay.ClearRoi();
+            _nativeOverlay.ClearRoi();
             UpdateTrayTip(null);
             return;
         }
@@ -310,13 +441,23 @@ public partial class App : Application
                 Forms.MessageBoxIcon.Warning);
         }
 
-        _overlay.FollowMode = _followMode;
+        _overlay.FollowMode = TrackFollowMode.Child;
         _watcher.SetFollowMode(_followMode);
         _watcher.Start();
         _trackItem.Text = "停止跟踪 Taskmgr";
         _captureFailStreak = 0;
+        _externalFrameFailStreak = 0;
         _capStatus = "cap=…";
-        _captureTimer.Start();
+        if (_followMode == TrackFollowMode.External)
+        {
+            _nativeOverlay.ApplyRoi(_watcher.CurrentRoi);
+        }
+        else
+        {
+            _overlay.ApplyRoi(_watcher.CurrentRoi);
+        }
+
+        SyncPipelineClocks();
         UpdateTrayTip(_watcher.CurrentRoi);
     }
 
@@ -344,6 +485,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        StopExternalLoop();
         _captureTimer?.Stop();
         _captureTimer = null;
 
@@ -355,6 +497,9 @@ public partial class App : Application
             _overlay.Close();
             _overlay = null;
         }
+
+        _nativeOverlay?.Dispose();
+        _nativeOverlay = null;
 
         if (_tray is not null)
         {

@@ -37,7 +37,7 @@ dotnet run --project src\CPURacer.App --no-build
 
 - **开始跟踪 Taskmgr**：C++ `TrackNative`（WinEvent + CPU 页判定）钉红框；状态含 `native`/`managed` 与跟随方式
 - **跟随方式**
-  - **外部 Overlay（WinEvent）**：屏幕坐标 Topmost（默认）
+  - **外部 Overlay（WinEvent）**：原生 Win32 + Direct2D，点击穿透、不激活，Z 序紧贴 Taskmgr（默认）
   - **子窗 SetParent（TaskmgrPlayer 式）**：透明 Overlay `SetParent` 进图表，客户区 `MoveWindow(0,0,w,h)`，拖动跟随更跟手
 - **手动显示 Overlay** / **调试描边** / **退出**
 
@@ -61,14 +61,16 @@ dotnet run --project src\CPURacer.App --no-build
 ## 调研与计划
 
 - [docs/调研报告.md](docs/调研报告.md)
-- [docs/实施计划.md](docs/实施计划.md)（§0.4 一键构建、M1.5）
+- [docs/实施计划.md](docs/实施计划.md)（§0.4 一键构建、M1.5 / M2.5）
 - [docs/research/TaskmgrPlayer-调研.md](docs/research/TaskmgrPlayer-调研.md)
+- [docs/research/M2.5-Overlay主循环对齐.md](docs/research/M2.5-Overlay主循环对齐.md)
 
 ## 状态
 
-**M2 进行中**：Screen ROI 捕获 + 高度场 + Overlay **调试拟合线**已接入（见 [docs/research/M2-捕获与拟合.md](docs/research/M2-捕获与拟合.md)）。
-M1.5 已验收；完整性限制见 [docs/research/M1.5-验收-跟随与完整性.md](docs/research/M1.5-验收-跟随与完整性.md)。
+**M2.6 手工验收中**：External 已迁移到原生 Win32 + Direct2D；WPF 仅保留 Child。见 [M2.6 迁移笔记](docs/research/M2.6-原生ExternalOverlay迁移.md)。
+M2 拟合仍可用；M3 物理在 stash，待 Overlay 稳健后再恢复。
 
-### M2 快速试跑
+### M2 / M2.5 快速试跑
 
-普通权限 → 外部 Overlay → 性能/CPU → 开始跟踪 → 勾选 **调试拟合线**。状态应出现 `cap=ok cols=…`，橙色线应对齐蓝线。
+普通权限 → **外部 Overlay** → 性能/CPU → 开始跟踪 → 勾选 **调试拟合线**。
+静止时红框/橙线应持续可见；点击 Overlay 不应消失；状态含 `cap=ok cols=…`。
