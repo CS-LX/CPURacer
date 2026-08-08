@@ -10,10 +10,20 @@
     <PlatformTarget>x64</PlatformTarget>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <ApplicationIcon />
+    <ApplicationIcon>CPURacer.ico</ApplicationIcon>
     <RootNamespace>CPURacer.App</RootNamespace>
     <AssemblyName>CPURacer</AssemblyName>
+    <Version>0.4.0</Version>
+    <FileVersion>0.4.0.0</FileVersion>
+    <InformationalVersion>0.4.0</InformationalVersion>
+    <Product>CPURacer</Product>
+    <Authors>CPURacer</Authors>
+    <Description>Race on the Windows Task Manager CPU chart.</Description>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="CPURacer.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\CPURacer.Overlay\CPURacer.Overlay.csproj" />

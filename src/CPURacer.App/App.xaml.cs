@@ -125,11 +125,12 @@ public partial class App : Application
 
     private void BuildTray()
     {
+        var trayIcon = LoadAppIcon() ?? SystemIcons.Application;
         _tray = new Forms.NotifyIcon
         {
             Text = "CPURacer — 打开任务管理器 CPU 图",
             Visible = true,
-            Icon = SystemIcons.Application,
+            Icon = trayIcon,
         };
 
         var menu = new Forms.ContextMenuStrip();
@@ -908,6 +909,24 @@ public partial class App : Application
             _overlayItem.Checked = true;
             _overlayItem.Text = "取消手动显示";
         }
+    }
+
+    private static Icon? LoadAppIcon()
+    {
+        try
+        {
+            var path = Environment.ProcessPath;
+            if (!string.IsNullOrEmpty(path))
+            {
+                return Icon.ExtractAssociatedIcon(path);
+            }
+        }
+        catch
+        {
+            // fall through
+        }
+
+        return null;
     }
 
     protected override void OnExit(ExitEventArgs e)
