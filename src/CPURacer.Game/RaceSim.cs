@@ -284,24 +284,31 @@ public sealed class RaceSim
         var chassisXPx = _insetLeft + (worldXPx - _scrollOriginPx) + 0.5f;
         var worldYPx = p.Y * PixelsPerMeter;
         var yFromTop = CoordMapper.WorldYToFrameYFromTop(worldYPx, _insetTop, _plotHPx);
-        var pedalPct = (int)MathF.Round(_pedal * 100f);
         var hud = _dead
             ? $"Game Over · {_deathReason} · {_runDistanceM:0.0}m (best {_sessionBestM:0.0}m) — Space"
             : _controlsDisabled
                 ? $"Flipped · {_runDistanceM:0.0}m — Space"
-                : $"{_runDistanceM:0.0}m  best {_sessionBestM:0.0}m  pedal {pedalPct}%";
+                : $"{_runDistanceM:0.0}m  best {_sessionBestM:0.0}m";
 
-        var ab = _terrain?.AccentB ?? (byte)212;
-        var ag = _terrain?.AccentG ?? (byte)120;
-        var ar = _terrain?.AccentR ?? (byte)0;
+        // TaskmgrPlayer ColorEdge RGB(12,125,187) as BGRA accent defaults.
+        var ab = _terrain?.AccentB ?? (byte)187;
+        var ag = _terrain?.AccentG ?? (byte)125;
+        var ar = _terrain?.AccentR ?? (byte)12;
+        // Draw Y-down: wheel hub is below chassis by the axle length used at spawn.
+        var axleYM = ChassisHalfH;
+        var wheelSpin = _wheelBack?.GetAngle() ?? 0f;
 
         return new CarState(
             chassisX: chassisXPx,
             chassisYFromTop: yFromTop,
             angleRad: angle,
             wheelRadius: WheelRadius * PixelsPerMeter,
+            wheelOffsetX: WheelOffsetX * PixelsPerMeter,
+            wheelOffsetY: axleYM * PixelsPerMeter,
+            wheelSpinRad: wheelSpin,
             halfWidth: ChassisHalfW * PixelsPerMeter,
             halfHeight: ChassisHalfH * PixelsPerMeter,
+            pedal: _pedal,
             speedPxPerSec: speedPx,
             distanceMeters: _runDistanceM,
             bestDistanceMeters: _sessionBestM,
@@ -519,8 +526,9 @@ public sealed class RaceSim
         var spawnXPx = _scrollOriginPx + (_plotWPx * 0.22f);
         var spawnXM = spawnXPx / PixelsPerMeter;
         var surfaceYM = SampleSurfaceM(spawnXM);
-        var wheelYM = surfaceYM + WheelRadius + 0.02f;
-        var chassisYM = wheelYM + ChassisHalfH + 0.02f;
+        // Snug hard-axle spawn: wheel sits on surface; chassis hangs ChassisHalfH above hub.
+        var wheelYM = surfaceYM + WheelRadius + 0.004f;
+        var chassisYM = wheelYM + ChassisHalfH;
 
         var cbd = new BodyDef();
         cbd.Position.Set(spawnXM, chassisYM);

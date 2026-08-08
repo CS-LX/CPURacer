@@ -72,7 +72,7 @@ dotnet run --project src\CPURacer.App --no-build
 
 **M3 可玩验收通过（非侵入）**：旁路 RaceHost + 世界折线续铺/视口投影 + 硬轴无级油门；Overlay 只出高度场、`SetCarPose` 画车，不改 `TickExternalFrame`。见 [M3-物理赛车.md](docs/research/M3-物理赛车.md)。
 
-**M4 进行中**：启动自动监视、托盘玩家化、默认 Play、Space 开赛、Accent 跟蓝线；PDH 降级与发布打包仍待。见 [M4-玩家壳与发布.md](docs/research/M4-玩家壳与发布.md)。
+**M4 玩家壳已通过（2026-08-09）**：启动自动监视、托盘玩家化、默认 Play、Space 开赛、Accent 跟蓝线。PDH / 单文件发布等延后。见 [M4-玩家壳与发布.md](docs/research/M4-玩家壳与发布.md)。
 
 ### 玩家快速开赛
 
