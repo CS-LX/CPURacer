@@ -33,4 +33,9 @@
     <ProjectReference Include="..\CPURacer.Native\CPURacer.Native.csproj" />
   </ItemGroup>
 
+  <!-- Win desktop does not need package RID folders (e.g. System.Text.*.browser). -->
+  <Target Name="StripUnusedRuntimeFolders" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <RemoveDir Directories="$(OutputPath)runtimes" Condition="Exists('$(OutputPath)runtimes')" />
+  </Target>
+
 </Project>
