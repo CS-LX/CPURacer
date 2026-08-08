@@ -5,6 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>CPURacer.Capture</RootNamespace>
+    <!-- Supplies System.Drawing.Common for the Windows-only BitBlt bitmap bridge. -->
+    <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
   <ItemGroup>

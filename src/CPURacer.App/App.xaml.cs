@@ -1,5 +1,7 @@
 ﻿using System.Drawing;
 using System.Windows;
+using System.Windows.Threading;
+using CPURacer.Capture;
 using CPURacer.Overlay;
 using CPURacer.Taskmgr;
 using Application = System.Windows.Application;
@@ -18,14 +20,26 @@ public partial class App : Application
     private OverlayWindow? _overlay;
     private TaskmgrWatcher? _watcher;
     private bool _debugOverlay = true;
+    private bool _showFitPolyline = true;
     private TrackFollowMode _followMode = TrackFollowMode.External;
+
+    private readonly ScreenRoiCapture _capture = new();
+    private readonly HeightFieldExtractor _extractor = new();
+    private DispatcherTimer? _captureTimer;
+    private int _captureFailStreak;
+    private string _capStatus = "";
 
     protected override void OnStartup(StartupEventArgs e)
     {
         Forms.Application.SetHighDpiMode(Forms.HighDpiMode.PerMonitorV2);
         base.OnStartup(e);
 
-        _overlay = new OverlayWindow { ShowDebugChrome = _debugOverlay, FollowMode = _followMode };
+        _overlay = new OverlayWindow
+        {
+            ShowDebugChrome = _debugOverlay,
+            ShowFitPolyline = _showFitPolyline,
+            FollowMode = _followMode,
+        };
         _watcher = new TaskmgrWatcher();
         _watcher.SetFollowMode(_followMode);
         _watcher.RoiChanged += roi =>
@@ -39,6 +53,14 @@ public partial class App : Application
                 Dispatcher.BeginInvoke(() => OnRoiChanged(roi));
             }
         };
+
+        _captureTimer = new DispatcherTimer(DispatcherPriority.Render)
+        {
+            // 80 ms was directly visible as ~0.1 s lag behind Taskmgr's advancing edge.
+            // 30 Hz keeps latency below one display frame or two without busy polling.
+            Interval = TimeSpan.FromMilliseconds(33),
+        };
+        _captureTimer.Tick += (_, _) => CaptureTick();
 
         BuildTray();
 
@@ -97,6 +119,18 @@ public partial class App : Application
         };
         menu.Items.Add(debugItem);
 
+        var fitItem = new Forms.ToolStripMenuItem("调试拟合线") { Checked = _showFitPolyline, CheckOnClick = true };
+        fitItem.CheckedChanged += (_, _) =>
+        {
+            _showFitPolyline = fitItem.Checked;
+            if (_overlay is not null)
+            {
+                _overlay.ShowFitPolyline = _showFitPolyline;
+                _overlay.InvalidateVisual();
+            }
+        };
+        menu.Items.Add(fitItem);
+
         _statusItem = new Forms.ToolStripMenuItem("状态: 未跟踪") { Enabled = false };
         menu.Items.Add(_statusItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
@@ -107,6 +141,64 @@ public partial class App : Application
 
         _tray.ContextMenuStrip = menu;
         _tray.DoubleClick += (_, _) => ToggleOverlayManual();
+    }
+
+    private void CaptureTick()
+    {
+        if (_overlay is null || _watcher is null || !_watcher.IsTracking)
+        {
+            return;
+        }
+
+        var roi = _watcher.CurrentRoi;
+        if (roi is null || !roi.Value.ShouldShow)
+        {
+            _captureFailStreak = 0;
+            _capStatus = "cap=sleep";
+            _overlay.SetHeightField(null, _capStatus);
+            UpdateTrayTip(roi);
+            return;
+        }
+
+        // Overlay is excluded from capture at the HWND level; never hide/show it per tick.
+        var frame = _capture.TryCapture(roi.Value);
+
+        if (frame is null)
+        {
+            _captureFailStreak++;
+            _capStatus = $"cap=fail({_captureFailStreak})";
+            // Treat one or two failures like skipped composition frames. Clearing
+            // immediately would blink at 30 Hz; sustained failure must clear stale terrain.
+            if (_captureFailStreak < 3)
+            {
+                _overlay.SetCaptureStatus(_capStatus);
+            }
+            else
+            {
+                _overlay.SetHeightField(null, _capStatus);
+            }
+
+            UpdateTrayTip(roi);
+            return;
+        }
+
+        _captureFailStreak = 0;
+        var field = _extractor.Extract(frame);
+        if (field is null)
+        {
+            // Keep the last reliable contour when BitBlt catches Taskmgr between
+            // composition passes. Clearing or using a synthetic fallback causes
+            // the visible fit to alternate between the line and a high plateau.
+            _capStatus = "cap=ok extract=skip";
+            _overlay.SetCaptureStatus(_capStatus);
+        }
+        else
+        {
+            _capStatus = $"cap=ok cols={field.PlotWidth}";
+            _overlay.SetHeightField(field, _capStatus);
+        }
+
+        UpdateTrayTip(roi);
     }
 
     private void SetFollowMode(TrackFollowMode mode)
@@ -171,9 +263,16 @@ public partial class App : Application
 
         var backend = _watcher.UsingNativeTracker ? "native" : "managed";
         var follow = _followMode == TrackFollowMode.Child ? "child" : "external";
-        var status = roi is null
-            ? $"tracking ({backend}/{follow}, no CPU chart)"
-            : $"{roi.Value.Width}x{roi.Value.Height} ({backend}/{follow}) show={roi.Value.ShouldShow}";
+        string status;
+        if (roi is null)
+        {
+            status = $"tracking ({backend}/{follow}, no CPU chart)";
+        }
+        else
+        {
+            status =
+                $"{roi.Value.Width}x{roi.Value.Height} ({backend}/{follow}) show={roi.Value.ShouldShow} {_capStatus}";
+        }
 
         _tray.Text = $"CPURacer — {status}";
         if (_statusItem is not null)
@@ -184,15 +283,19 @@ public partial class App : Application
 
     private void ToggleTracking()
     {
-        if (_watcher is null || _trackItem is null || _overlay is null)
+        if (_watcher is null || _trackItem is null || _overlay is null || _captureTimer is null)
         {
             return;
         }
 
         if (_watcher.IsTracking)
         {
+            _captureTimer.Stop();
             _watcher.Stop();
             _trackItem.Text = "开始跟踪 Taskmgr";
+            _capStatus = "";
+            _captureFailStreak = 0;
+            _overlay.SetHeightField(null);
             _overlay.ApplyRoi(null);
             UpdateTrayTip(null);
             return;
@@ -211,6 +314,9 @@ public partial class App : Application
         _watcher.SetFollowMode(_followMode);
         _watcher.Start();
         _trackItem.Text = "停止跟踪 Taskmgr";
+        _captureFailStreak = 0;
+        _capStatus = "cap=…";
+        _captureTimer.Start();
         UpdateTrayTip(_watcher.CurrentRoi);
     }
 
@@ -238,6 +344,9 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _captureTimer?.Stop();
+        _captureTimer = null;
+
         _watcher?.Dispose();
         _watcher = null;
 
