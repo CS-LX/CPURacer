@@ -74,6 +74,11 @@ public sealed class RaceSim
     private float _pedal;
     private bool _dead;
     private bool _controlsDisabled;
+    private float _spawnWorldXPx;
+    private float _maxWorldXPx;
+    private float _runDistanceM;
+    private float _sessionBestM;
+    private string _deathReason = "";
 
     public bool IsRunning { get; private set; }
 
@@ -81,6 +86,10 @@ public sealed class RaceSim
 
     /// <summary>Smoothed scroll of the viewport through world space (plot px/s).</summary>
     public float ScrollPxPerSec => _scrollPxPerSec;
+
+    public float DistanceMeters => _runDistanceM;
+
+    public float BestDistanceMeters => _sessionBestM;
 
     public void Start()
     {
@@ -94,6 +103,7 @@ public sealed class RaceSim
         SeedWorldFromCamera();
         RebuildGroundFromWorld();
         SpawnVehicle();
+        ResetRunStats();
         _pedal = 0;
         _dead = false;
         _controlsDisabled = false;
@@ -111,6 +121,8 @@ public sealed class RaceSim
         _worldYPx.Clear();
         _scrollOriginPx = 0;
         _pedal = 0;
+        _runDistanceM = 0;
+        _deathReason = "";
         _dead = false;
         _controlsDisabled = false;
         _stepAccumulator = 0;
@@ -129,12 +141,21 @@ public sealed class RaceSim
         SeedWorldFromCamera();
         RebuildGroundFromWorld();
         SpawnVehicle();
+        ResetRunStats();
         _pedal = 0;
         _dead = false;
         _controlsDisabled = false;
         IsRunning = true;
         _lastScrollSampleMs = Environment.TickCount64;
         _scrollPxPerSec = 0;
+    }
+
+    private void ResetRunStats()
+    {
+        _spawnWorldXPx = _scrollOriginPx + (_plotWPx * 0.22f);
+        _maxWorldXPx = _spawnWorldXPx;
+        _runDistanceM = 0;
+        _deathReason = "";
     }
 
     /// <summary>W = ramp pedal forward, S = ramp pedal backward (through idle into reverse).</summary>
@@ -216,11 +237,33 @@ public sealed class RaceSim
         }
 
         UpdateFlipState();
+        UpdateDistance(_chassis.GetPosition());
         if (IsOutOfView(_chassis.GetPosition()))
         {
             _dead = true;
             IsRunning = false;
+            _deathReason = "驶出赛道";
+            if (_runDistanceM > _sessionBestM)
+            {
+                _sessionBestM = _runDistanceM;
+            }
+
             SetWheelMotors(0f, 0f, 0f, 0f);
+        }
+    }
+
+    private void UpdateDistance(Vec2 centerM)
+    {
+        var worldXPx = centerM.X * PixelsPerMeter;
+        if (worldXPx > _maxWorldXPx)
+        {
+            _maxWorldXPx = worldXPx;
+        }
+
+        _runDistanceM = System.Math.Max(0f, (_maxWorldXPx - _spawnWorldXPx) / PixelsPerMeter);
+        if (_runDistanceM > _sessionBestM && !_dead)
+        {
+            _sessionBestM = _runDistanceM;
         }
     }
 
@@ -242,12 +285,15 @@ public sealed class RaceSim
         var worldYPx = p.Y * PixelsPerMeter;
         var yFromTop = CoordMapper.WorldYToFrameYFromTop(worldYPx, _insetTop, _plotHPx);
         var pedalPct = (int)MathF.Round(_pedal * 100f);
-        var keys = $"{(GameInput.ThrottleDown ? "W" : "")}{(GameInput.BrakeDown ? "S" : "")}{(GameInput.RestartPressed ? "_" : "")}";
         var hud = _dead
-            ? "GAME OVER — Space 重开"
+            ? $"Game Over · {_deathReason} · {_runDistanceM:0.0}m (best {_sessionBestM:0.0}m) — Space"
             : _controlsDisabled
-                ? $"翻车失控  v={speedPx:0}  Space 重开"
-                : $"v={speedPx:0}px/s  pedal={pedalPct}%  scroll={ScrollPxPerSec:0}  keys={keys}  W加 S减";
+                ? $"Flipped · {_runDistanceM:0.0}m — Space"
+                : $"{_runDistanceM:0.0}m  best {_sessionBestM:0.0}m  pedal {pedalPct}%";
+
+        var ab = _terrain?.AccentB ?? (byte)212;
+        var ag = _terrain?.AccentG ?? (byte)120;
+        var ar = _terrain?.AccentR ?? (byte)0;
 
         return new CarState(
             chassisX: chassisXPx,
@@ -257,6 +303,11 @@ public sealed class RaceSim
             halfWidth: ChassisHalfW * PixelsPerMeter,
             halfHeight: ChassisHalfH * PixelsPerMeter,
             speedPxPerSec: speedPx,
+            distanceMeters: _runDistanceM,
+            bestDistanceMeters: _sessionBestM,
+            accentB: ab,
+            accentG: ag,
+            accentR: ar,
             isDead: _dead,
             controlsDisabled: _controlsDisabled,
             isRunning: IsRunning,

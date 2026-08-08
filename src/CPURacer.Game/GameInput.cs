@@ -20,6 +20,7 @@ public static class GameInput
     private const int VkW = 0x57;
     private const int VkS = 0x53;
     private const int VkSpace = 0x20;
+    private const int VkTab = 0x09;
     private const int VkLeft = 0x25;
     private const int VkRight = 0x27;
     private const int VkA = 0x41;
@@ -36,6 +37,9 @@ public static class GameInput
         IsDown(VkDown) || IsDown(VkS) || IsDown(VkLeft) || IsDown(VkA);
 
     public static bool RestartPressed => IsDown(VkSpace);
+
+    /// <summary>Tab — toggle Play/Debug chrome (edge-detect in App).</summary>
+    public static bool DebugToggleDown => IsDown(VkTab);
 
     public static void Install()
     {

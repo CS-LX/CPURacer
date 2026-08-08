@@ -33,24 +33,22 @@ dotnet run --project src\CPURacer.App --no-build
 
 > 勿对含 C++ 的解决方案单独使用 `dotnet build`（dotnet CLI 无法编 vcxproj）。统一用 `.\build.cmd` 或 VS 生成。
 
-运行后托盘出现 **CPURacer**：
+运行后托盘出现 **CPURacer**（启动即监视 Taskmgr，无需「开始跟踪」）：
 
-- **开始跟踪 Taskmgr**：C++ `TrackNative`（WinEvent + CPU 页判定）钉红框；状态含 `native`/`managed` 与跟随方式
-- **跟随方式**
-  - **外部 Overlay（WinEvent）**：原生 Win32 + Direct2D，点击穿透、不激活，Z 序紧贴 Taskmgr（默认）
-  - **子窗 SetParent（TaskmgrPlayer 式）**：透明 Overlay `SetParent` 进图表，客户区 `MoveWindow(0,0,w,h)`，拖动跟随更跟手
-- **开始比赛** / **重开（Space）**：非侵入 RaceHost（旁路时钟）；W/↑ 油门、S/↓ 刹车
-- **手动显示 Overlay** / **调试描边** / **退出**
+- **开始 / 停止**、**重开（Space）**、**退出** — 玩家主菜单；双击托盘 = 开赛  
+- **高级**：暂停/恢复监视、跟随方式、手动 Overlay、调试描边 / 拟合线、工程状态  
+  - **外部 Overlay（默认）**：原生 Win32 + Direct2D，点击穿透  
+  - **子窗 SetParent**：透明 Overlay 进图表（调试用）  
 
 ### M1.5 验收
 
 1. `.\build.cmd` 成功，且存在 `src\CPURacer.App\bin\Debug\net8.0-windows\CPURacer.TrackNative.dll`  
-2. 打开 Taskmgr → **性能 → CPU**，开始跟踪，点 Taskmgr 前台：红框贴大图  
-3. **快速拖动**窗口：红框应紧贴（明显好于 M1）  
-4. 切到 **内存 / GPU**：红框消失  
-5. 切回 **CPU**：红框回来  
-6. Alt+Tab / 点其它窗：红框立刻消失；Taskmgr 仍可见但非前台时也**无**红框  
-7. 托盘 **跟随方式**：可在「外部 Overlay」与「子窗 SetParent」间切换  
+2. 打开 Taskmgr → **性能 → CPU**，点 Taskmgr 前台（高级开调试描边时可见红框贴大图）  
+3. **快速拖动**窗口：框应紧贴（明显好于 M1）  
+4. 切到 **内存 / GPU**：框消失  
+5. 切回 **CPU**：框回来  
+6. Alt+Tab / 点其它窗：框立刻消失；Taskmgr 仍可见但非前台时也**无**框  
+7. 托盘 **高级 → 跟随方式**：可在「外部 Overlay」与「子窗 SetParent」间切换  
 
 **状态：** M1.5 **已验收通过**。完整性级别与跟随方式的交叉限制见 [docs/research/M1.5-验收-跟随与完整性.md](docs/research/M1.5-验收-跟随与完整性.md)。
 
@@ -74,12 +72,21 @@ dotnet run --project src\CPURacer.App --no-build
 
 **M3 可玩验收通过（非侵入）**：旁路 RaceHost + 世界折线续铺/视口投影 + 硬轴无级油门；Overlay 只出高度场、`SetCarPose` 画车，不改 `TickExternalFrame`。见 [M3-物理赛车.md](docs/research/M3-物理赛车.md)。
 
-**下一里程碑 M4（可选）**：Play/Debug 分离、玩法循环与提示、观感；并含降级/管理员提示与发布预备。见 [M4-玩家壳与发布.md](docs/research/M4-玩家壳与发布.md)。
+**M4 进行中**：启动自动监视、托盘玩家化、默认 Play、Space 开赛、Accent 跟蓝线；PDH 降级与发布打包仍待。见 [M4-玩家壳与发布.md](docs/research/M4-玩家壳与发布.md)。
 
-### M2 / M2.5 快速试跑
+### 玩家快速开赛
 
-普通权限 → **外部 Overlay** → 性能/CPU → 开始跟踪 → 勾选 **调试拟合线**。
-静止时红框/橙线应持续可见；点击 Overlay 不应消失；状态含 `cap=ok cols=…`。
+1. 运行 `CPURacer.exe`（若 Taskmgr 是管理员，本程序也要管理员）  
+2. 打开 **任务管理器 → 性能 → CPU**  
+3. 见 `Paused — Space 开始` → **Space**（或托盘/双击「开始」）  
+4. **W/S** 油门 · **Space** 重开 · **Tab** 调试  
 
-重点回归：右键托盘打开菜单（可不点菜单项）→ 点回 Taskmgr 图表空白；Overlay
-不得被 Taskmgr 盖住。菜单打开期间拟合线可暂时停帧，点回 Taskmgr 后应恢复滚动。
+### 已知问题
+
+- Taskmgr 高特权时，非管理员进程的 W/S 可能被 UIPI 挡住  
+- 捕获失败时尚无 PDH 影子山路，仅提示检查 CPU 大图  
+
+### 工程验收（调试）
+
+普通权限 → 性能/CPU → **高级 → 调试拟合线**。静止时橙线应持续可见；状态在高级菜单里看 `cap=`。  
+重点回归：右键托盘打开菜单 → 点回 Taskmgr 图表空白；Overlay 不得被盖住。

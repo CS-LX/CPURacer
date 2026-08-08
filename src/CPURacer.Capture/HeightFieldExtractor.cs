@@ -6,12 +6,22 @@ namespace CPURacer.Capture;
 /// </summary>
 public sealed class HeightField
 {
-    public HeightField(int frameWidth, int frameHeight, PlotInset inset, float[] yFromTop)
+    public HeightField(
+        int frameWidth,
+        int frameHeight,
+        PlotInset inset,
+        float[] yFromTop,
+        byte accentB = 212,
+        byte accentG = 120,
+        byte accentR = 0)
     {
         FrameWidth = frameWidth;
         FrameHeight = frameHeight;
         Inset = inset;
         YFromTop = yFromTop;
+        AccentB = accentB;
+        AccentG = accentG;
+        AccentR = accentR;
     }
 
     public int FrameWidth { get; }
@@ -19,6 +29,11 @@ public sealed class HeightField
     public PlotInset Inset { get; }
     public float[] YFromTop { get; }
     public int PlotWidth => YFromTop.Length;
+
+    /// <summary>Sampled Taskmgr stroke color (BGRA channels) for play tinting.</summary>
+    public byte AccentB { get; }
+    public byte AccentG { get; }
+    public byte AccentR { get; }
 }
 
 /// <summary>Plot area inset inside the captured chart HWND (physical pixels).</summary>
@@ -79,13 +94,30 @@ public sealed class HeightFieldExtractor
 
         var raw = new float[plotW];
         var detected = 0;
+        long accentWeight = 0;
+        long accentB = 0;
+        long accentG = 0;
+        long accentR = 0;
         for (var x = 0; x < plotW; x++)
         {
             var fx = inset.Left + x;
-            if (TrySampleColumnRidge(frame, fx, inset.Top, inset.Top + plotH - 1, out var y))
+            if (TrySampleColumnRidge(
+                    frame,
+                    fx,
+                    inset.Top,
+                    inset.Top + plotH - 1,
+                    out var y,
+                    out var b,
+                    out var g,
+                    out var r,
+                    out var score))
             {
                 raw[x] = y;
                 detected++;
+                accentWeight += score;
+                accentB += (long)b * score;
+                accentG += (long)g * score;
+                accentR += (long)r * score;
             }
             else
             {
@@ -103,7 +135,17 @@ public sealed class HeightFieldExtractor
         var completed = InterpolateMissing(raw);
         var despike = DespikeImpulses(completed, ImpulseThresholdPx);
         var smooth = Smooth(despike, _smoothRadius);
-        return new HeightField(w, h, inset, smooth);
+        byte ab = 212;
+        byte ag = 120;
+        byte ar = 0;
+        if (accentWeight > 0)
+        {
+            ab = (byte)System.Math.Clamp(accentB / accentWeight, 0, 255);
+            ag = (byte)System.Math.Clamp(accentG / accentWeight, 0, 255);
+            ar = (byte)System.Math.Clamp(accentR / accentWeight, 0, 255);
+        }
+
+        return new HeightField(w, h, inset, smooth, ab, ag, ar);
     }
 
     /// <summary>Extract from raw BGRA (for tests / fixtures).</summary>
@@ -119,11 +161,19 @@ public sealed class HeightFieldExtractor
         int x,
         int yTop,
         int yBottom,
-        out float ridgeY)
+        out float ridgeY,
+        out byte accentB,
+        out byte accentG,
+        out byte accentR,
+        out int peakScore)
     {
         var rowStride = frame.Stride;
         var maxScore = 0;
         var bestY = yBottom;
+        accentB = 0;
+        accentG = 0;
+        accentR = 0;
+        peakScore = 0;
 
         for (var y = yTop; y <= yBottom; y++)
         {
@@ -133,6 +183,9 @@ public sealed class HeightFieldExtractor
             {
                 maxScore = score;
                 bestY = y;
+                accentB = frame.Bgra[i];
+                accentG = frame.Bgra[i + 1];
+                accentR = frame.Bgra[i + 2];
             }
         }
 
@@ -142,6 +195,7 @@ public sealed class HeightFieldExtractor
             return false;
         }
 
+        peakScore = maxScore;
         var threshold = Math.Max(MinAccentScore, (maxScore * 85) / 100);
         var y0 = Math.Max(yTop, bestY - RidgeHalfWindow);
         var y1 = Math.Min(yBottom, bestY + RidgeHalfWindow);
