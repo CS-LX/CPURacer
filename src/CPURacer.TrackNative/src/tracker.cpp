@@ -272,13 +272,19 @@ bool IsForegroundRelated(HWND mainHwnd, HWND chartHwnd) {
     return false;
 }
 
-bool FindCpuChart(TrackRoiState& out) {
+enum class FindChartResult {
+    Found,
+    Missing,
+    NotCpuPage,
+};
+
+FindChartResult FindCpuChart(TrackRoiState& out) {
     ZeroMemory(&out, sizeof(out));
     out.follow_mode = g_followMode.load();
 
     HWND mainHwnd = FindTaskmgrMain();
     if (!mainHwnd) {
-        return false;
+        return FindChartResult::Missing;
     }
 
     std::vector<ChartInfo> charts;
@@ -307,13 +313,13 @@ bool FindCpuChart(TrackRoiState& out) {
 
     ChartInfo* pageCandidate = bestVisible ? bestVisible : bestAny;
     if (!pageCandidate) {
-        return false;
+        return FindChartResult::Missing;
     }
 
     HWND pageHwnd = bestVisible ? bestVisible->hwnd : pageCandidate->hwnd;
     if (!AcceptCpuPage(mainHwnd, pageHwnd)) {
         out.is_cpu_page = 0;
-        return false;
+        return FindChartResult::NotCpuPage;
     }
     out.is_cpu_page = 1;
 
@@ -344,7 +350,7 @@ bool FindCpuChart(TrackRoiState& out) {
     } else {
         out.should_show = IsForegroundRelated(mainHwnd, best->hwnd) ? 1 : 0;
     }
-    return true;
+    return FindChartResult::Found;
 }
 
 bool StateEqual(const TrackRoiState& a, const TrackRoiState& b) {
@@ -376,11 +382,25 @@ void Emit(const TrackRoiState* state) {
 
 void RefreshAndEmit() {
     TrackRoiState state{};
-    if (!FindCpuChart(state)) {
-        Emit(nullptr);
+    const FindChartResult result = FindCpuChart(state);
+    if (result == FindChartResult::Found) {
+        Emit(&state);
         return;
     }
-    Emit(&state);
+
+    // During live moves Taskmgr can briefly expose no chart candidate even though
+    // the previously discovered HWND is still valid. C++ owns discovery continuity:
+    // suppress that transient empty result instead of making the Overlay guess.
+    if (result == FindChartResult::Missing && g_hasLast) {
+        HWND lastChart = reinterpret_cast<HWND>(static_cast<intptr_t>(g_last.chart_hwnd));
+        if (IsShown(lastChart)) {
+            return;
+        }
+    }
+
+    // NotCpuPage is definitive and must hide immediately; Missing reaches here
+    // only when the previous HWND is no longer usable.
+    Emit(nullptr);
 }
 
 void CALLBACK WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd, LONG idObject, LONG, DWORD, DWORD) {
@@ -505,7 +525,7 @@ TRACK_API int __stdcall Track_GetState(TrackRoiState* out_state) {
         return -1;
     }
     TrackRoiState state{};
-    if (!FindCpuChart(state)) {
+    if (FindCpuChart(state) != FindChartResult::Found) {
         ZeroMemory(out_state, sizeof(*out_state));
         out_state->follow_mode = g_followMode.load();
         return 1;

@@ -8,8 +8,8 @@ using CPURacer.Taskmgr;
 namespace CPURacer.Overlay;
 
 /// <summary>
-/// Transparent overlay in one of two follow modes:
-/// External = topmost screen rect; Child = SetParent into chart (TaskmgrPlayer-style).
+/// WPF Child overlay retained for the SetParent / TaskmgrPlayer-style path.
+/// External rendering is owned by <see cref="NativeExternalOverlay"/>.
 /// </summary>
 public sealed class OverlayWindow : Window
 {
@@ -17,6 +17,8 @@ public sealed class OverlayWindow : Window
 
     private ChartRoi? _roi;
     private bool _forceVisible;
+    private bool _showDebugChrome = true;
+    private bool _showFitPolyline = true;
     private string _statusText = "CPURacer";
     private TrackFollowMode _followMode = TrackFollowMode.External;
     private IntPtr _attachedParent = IntPtr.Zero;
@@ -27,6 +29,7 @@ public sealed class OverlayWindow : Window
     private int _lastChildH = -1;
     private HeightField? _heightField;
     private string _captureStatus = "";
+    private readonly DrawingGroup _backingStore = new();
 
     public OverlayWindow()
     {
@@ -37,11 +40,11 @@ public sealed class OverlayWindow : Window
         Topmost = true;
         ShowInTaskbar = false;
         ResizeMode = ResizeMode.NoResize;
+        Focusable = true;
         Width = 400;
         Height = 200;
         Left = 120;
         Top = OffscreenTop;
-        ShowDebugChrome = true;
         SourceInitialized += (_, _) =>
         {
             var hwnd = EnsureHandle();
@@ -50,10 +53,36 @@ public sealed class OverlayWindow : Window
         };
     }
 
-    public bool ShowDebugChrome { get; set; }
+    public bool ShowDebugChrome
+    {
+        get => _showDebugChrome;
+        set
+        {
+            if (_showDebugChrome == value)
+            {
+                return;
+            }
+
+            _showDebugChrome = value;
+            RebuildBackingStore();
+        }
+    }
 
     /// <summary>Draw extracted height-field polyline (orange) for M2 fit check.</summary>
-    public bool ShowFitPolyline { get; set; } = true;
+    public bool ShowFitPolyline
+    {
+        get => _showFitPolyline;
+        set
+        {
+            if (_showFitPolyline == value)
+            {
+                return;
+            }
+
+            _showFitPolyline = value;
+            RebuildBackingStore();
+        }
+    }
 
     /// <summary>Optional plot inset in physical pixels (M2+).</summary>
     public Thickness PlotInsetPx { get; set; }
@@ -92,6 +121,14 @@ public sealed class OverlayWindow : Window
 
     public void ApplyRoi(ChartRoi? roi)
     {
+        SetRoiCore(roi);
+    }
+
+    /// <summary>Definitively clear tracking state (tracking stopped / app shutdown).</summary>
+    public void ClearRoi() => SetRoiCore(null);
+
+    private void SetRoiCore(ChartRoi? roi)
+    {
         _roi = roi;
         if (roi is null)
         {
@@ -99,11 +136,20 @@ public sealed class OverlayWindow : Window
             _heightField = null;
             DetachFromChart();
             HideOverlaySurface();
+            RebuildBackingStore();
             return;
         }
 
         RefreshStatusText();
-        ApplyPlacement();
+
+        if (FollowMode == TrackFollowMode.Child)
+        {
+            ApplyPlacement();
+        }
+        else
+        {
+            RebuildBackingStore();
+        }
     }
 
     public void SetHeightField(HeightField? field, string captureStatus = "")
@@ -111,14 +157,14 @@ public sealed class OverlayWindow : Window
         _heightField = field;
         _captureStatus = captureStatus;
         RefreshStatusText();
-        InvalidateVisual();
+        RebuildBackingStore();
     }
 
     public void SetCaptureStatus(string captureStatus)
     {
         _captureStatus = captureStatus;
         RefreshStatusText();
-        InvalidateVisual();
+        RebuildBackingStore();
     }
 
     public void ShowPlaceholder()
@@ -134,12 +180,12 @@ public sealed class OverlayWindow : Window
             Topmost = true;
             _statusText = "CPURacer — manual overlay";
             EnsureWindowShown();
-            Activate();
-            InvalidateVisual();
+            RebuildBackingStore();
             return;
         }
 
         ApplyPlacement();
+        RebuildBackingStore();
     }
 
     public void HidePlaceholder()
@@ -147,6 +193,7 @@ public sealed class OverlayWindow : Window
         _forceVisible = false;
         Topmost = FollowMode == TrackFollowMode.External;
         ApplyPlacement();
+        RebuildBackingStore();
     }
 
     protected override void OnClosed(EventArgs e)
@@ -158,42 +205,55 @@ public sealed class OverlayWindow : Window
     protected override void OnRender(DrawingContext drawingContext)
     {
         base.OnRender(drawingContext);
-        if (ActualWidth <= 2 || ActualHeight <= 2)
-        {
-            return;
-        }
-
-        if (ShowFitPolyline && _heightField is { PlotWidth: > 1 } field)
-        {
-            DrawFitPolyline(drawingContext, field);
-        }
-
-        if (!ShowDebugChrome)
-        {
-            return;
-        }
-
-        var pen = new Pen(new SolidColorBrush(Color.FromArgb(200, 220, 60, 60)), 2);
-        drawingContext.DrawRectangle(
-            null,
-            pen,
-            new Rect(1, 1, ActualWidth - 2, ActualHeight - 2));
-
-        var text = new FormattedText(
-            _statusText,
-            System.Globalization.CultureInfo.CurrentUICulture,
-            FlowDirection.LeftToRight,
-            new Typeface("Segoe UI"),
-            13,
-            new SolidColorBrush(Color.FromArgb(230, 220, 60, 60)),
-            VisualTreeHelper.GetDpi(this).PixelsPerDip);
-        drawingContext.DrawText(text, new Point(10, 8));
+        drawingContext.DrawDrawing(_backingStore);
     }
 
-    private void DrawFitPolyline(DrawingContext dc, HeightField field)
+    private void RebuildBackingStore()
     {
-        var sx = ActualWidth / field.FrameWidth;
-        var sy = ActualHeight / field.FrameHeight;
+        var drawW = ActualWidth > 2 ? ActualWidth : Width;
+        var drawH = ActualHeight > 2 ? ActualHeight : Height;
+        var dc = _backingStore.Open();
+        try
+        {
+            if (drawW > 2 && drawH > 2)
+            {
+                if (ShowFitPolyline && _heightField is { PlotWidth: > 1 } field)
+                {
+                    DrawFitPolyline(dc, field, drawW, drawH);
+                }
+
+                if (ShowDebugChrome)
+                {
+                    var pen = new Pen(new SolidColorBrush(Color.FromArgb(200, 220, 60, 60)), 2);
+                    dc.DrawRectangle(
+                        null,
+                        pen,
+                        new Rect(1, 1, drawW - 2, drawH - 2));
+
+                    var text = new FormattedText(
+                        _statusText,
+                        System.Globalization.CultureInfo.CurrentUICulture,
+                        FlowDirection.LeftToRight,
+                        new Typeface("Segoe UI"),
+                        13,
+                        new SolidColorBrush(Color.FromArgb(230, 220, 60, 60)),
+                        VisualTreeHelper.GetDpi(this).PixelsPerDip);
+                    dc.DrawText(text, new Point(10, 8));
+                }
+            }
+        }
+        finally
+        {
+            dc.Close();
+        }
+
+        InvalidateVisual();
+    }
+
+    private static void DrawFitPolyline(DrawingContext dc, HeightField field, double drawW, double drawH)
+    {
+        var sx = drawW / field.FrameWidth;
+        var sy = drawH / field.FrameHeight;
         var geo = new StreamGeometry();
         using (var ctx = geo.Open())
         {
@@ -263,7 +323,12 @@ public sealed class OverlayWindow : Window
 
     private void PlaceExternal(bool show)
     {
-        DetachFromChart();
+        // Avoid touching Child attachment; Detach is a no-op when not attached.
+        if (_attachedParent != IntPtr.Zero || _childStylesApplied)
+        {
+            DetachFromChart();
+        }
+
         Topmost = true;
 
         var roi = _roi!.Value;
@@ -278,7 +343,6 @@ public sealed class OverlayWindow : Window
         Height = height;
         Top = show ? top : OffscreenTop;
         EnsureWindowShown();
-        InvalidateVisual();
     }
 
     private void PlaceAsChild(bool show)
@@ -443,6 +507,8 @@ public sealed class OverlayWindow : Window
     {
         if (!IsVisible)
         {
+            // Showing a topmost WPF window must not steal Taskmgr focus.
+            ShowActivated = FollowMode != TrackFollowMode.External;
             Show();
         }
     }

@@ -15,4 +15,8 @@
     <ProjectReference Include="..\CPURacer.Native\CPURacer.Native.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Vortice.Direct2D1" Version="3.8.3" />
+  </ItemGroup>
+
 </Project>
