@@ -254,19 +254,15 @@ public sealed class OverlayWindow : Window
                     DrawFitPolyline(dc, field, drawW, drawH);
                 }
 
-                byte ab = 212, ag = 120, ar = 0;
+                // TaskmgrPlayer ColorEdge RGB(12,125,187)
+                const byte ar = 12, ag = 125, ab = 187;
                 if (_carPose is { } car)
                 {
-                    ab = car.AccentB;
-                    ag = car.AccentG;
-                    ar = car.AccentR;
                     DrawCar(dc, car, drawW, drawH);
-                }
-                else if (_heightField is { } hf)
-                {
-                    ab = hf.AccentB;
-                    ag = hf.AccentG;
-                    ar = hf.AccentR;
+                    if (!ShowDebugChrome && car.IsRunning && !car.IsDead)
+                    {
+                        DrawThrottleBar(dc, car, drawW, drawH, ar, ag, ab);
+                    }
                 }
 
                 if (ShowDebugChrome)
@@ -366,39 +362,35 @@ public sealed class OverlayWindow : Window
         var hw = car.HalfWidth * sx;
         var hh = car.HalfHeight * sy;
         var wr = car.WheelRadius * Math.Min(sx, sy);
+        var ox = car.WheelOffsetX * sx;
+        var oy = car.WheelOffsetY * sy;
 
-        var ar = car.AccentR;
-        var ag = car.AccentG;
-        var ab = car.AccentB;
+        // TaskmgrPlayer: ColorDark fill + ColorEdge stroke (not solid edge).
+        const byte er = 12, eg = 125, eb = 187;
+        const byte fr = 241, fg = 246, fb = 250;
         var fill = car.IsDead
-            ? new SolidColorBrush(Color.FromArgb(225, (byte)Math.Min(255, ar / 2 + 120), (byte)(ag / 4), (byte)(ab / 4)))
+            ? new SolidColorBrush(Color.FromArgb(240, 255, 224, 224))
             : car.ControlsDisabled
-                ? new SolidColorBrush(Color.FromArgb(230, (byte)Math.Min(255, ar + 80), (byte)Math.Min(255, ag + 40), (byte)(ab / 2)))
-                : new SolidColorBrush(Color.FromArgb(
-                    235,
-                    (byte)Math.Min(255, (ar / 2) + 128),
-                    (byte)Math.Min(255, (ag / 2) + 128),
-                    (byte)Math.Min(255, (ab / 2) + 128)));
-        var stroke = new Pen(new SolidColorBrush(Color.FromArgb(240, 30, 30, 36)), 1.5);
+                ? new SolidColorBrush(Color.FromArgb(240, 255, 235, 200))
+                : new SolidColorBrush(Color.FromArgb(240, fr, fg, fb));
+        var strokeRgb = car.IsDead
+            ? Color.FromArgb(255, 190, 50, 50)
+            : Color.FromArgb(255, er, eg, eb);
+        var strokeBrush = new SolidColorBrush(strokeRgb);
+        var stroke = new Pen(strokeBrush, 2.0);
         fill.Freeze();
+        strokeBrush.Freeze();
         stroke.Freeze();
 
         var deg = -car.AngleRad * 180.0 / Math.PI;
         dc.PushTransform(new RotateTransform(deg, cx, cy));
         dc.DrawRectangle(fill, stroke, new Rect(cx - hw, cy - hh, hw * 2, hh * 2));
-        var cabin = new SolidColorBrush(Color.FromArgb(220, ar, ag, ab));
-        cabin.Freeze();
-        dc.DrawRectangle(
-            cabin,
-            stroke,
-            new Rect(cx - hw * 0.35, cy - hh * 1.6, hw * 0.9, hh * 0.7));
+        dc.DrawRectangle(fill, stroke, new Rect(cx - hw * 0.15, cy - hh * 1.85, hw * 0.85, hh * 0.85));
         dc.Pop();
 
-        var wheelBrush = new SolidColorBrush(Color.FromArgb(230, 30, 30, 30));
-        wheelBrush.Freeze();
         var screenAngle = -car.AngleRad;
-        DrawWheel(dc, cx, cy, -hw * 0.78, hh * 0.35, screenAngle, wr, wheelBrush, stroke);
-        DrawWheel(dc, cx, cy, hw * 0.78, hh * 0.35, screenAngle, wr, wheelBrush, stroke);
+        DrawWheel(dc, cx, cy, -ox, oy, screenAngle, wr, fill, stroke);
+        DrawWheel(dc, cx, cy, ox, oy, screenAngle, wr, fill, stroke);
     }
 
     private static void DrawWheel(
@@ -417,6 +409,55 @@ public sealed class OverlayWindow : Window
         var x = cx + localX * cos - localY * sin;
         var y = cy + localX * sin + localY * cos;
         dc.DrawEllipse(fill, stroke, new Point(x, y), radius, radius);
+    }
+
+    private void DrawThrottleBar(DrawingContext dc, CarState car, double drawW, double drawH, byte ar, byte ag, byte ab)
+    {
+        var barW = 8.0;
+        var barH = Math.Clamp(drawH * 0.28, 72, 140);
+        var x0 = 12.0;
+        var y0 = Math.Max(36, drawH - 28 - barH);
+        // ColorDark wash RGB(241,246,250); fill/rim = ColorEdge.
+        var track = new SolidColorBrush(Color.FromArgb(220, 241, 246, 250));
+        var accent = new SolidColorBrush(Color.FromArgb(240, ar, ag, ab));
+        var hud = new SolidColorBrush(Color.FromArgb(255, ar, ag, ab));
+        track.Freeze();
+        accent.Freeze();
+        hud.Freeze();
+        var rim = new Pen(hud, 1);
+        dc.DrawRectangle(track, rim, new Rect(x0, y0, barW, barH));
+        var midY = y0 + (barH * 0.5);
+        dc.DrawLine(rim, new Point(x0 - 2, midY), new Point(x0 + barW + 2, midY));
+
+        var pedal = Math.Clamp(car.Pedal, -1f, 1f);
+        if (Math.Abs(pedal) >= 0.02f)
+        {
+            double fillY;
+            double fillH;
+            if (pedal >= 0f)
+            {
+                fillH = (barH * 0.5) * pedal;
+                fillY = midY - fillH;
+            }
+            else
+            {
+                fillH = (barH * 0.5) * -pedal;
+                fillY = midY;
+            }
+
+            dc.DrawRectangle(accent, null, new Rect(x0 + 1, fillY, barW - 2, Math.Max(1, fillH)));
+        }
+
+        var label = Math.Abs(pedal) < 0.02f ? "油门" : $"{(int)MathF.Round(pedal * 100f)}%";
+        var text = new FormattedText(
+            label,
+            System.Globalization.CultureInfo.CurrentUICulture,
+            FlowDirection.LeftToRight,
+            new Typeface("Consolas"),
+            11,
+            hud,
+            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        dc.DrawText(text, new Point(x0 + barW + 6, midY - 8));
     }
 
     private void RefreshStatusText()

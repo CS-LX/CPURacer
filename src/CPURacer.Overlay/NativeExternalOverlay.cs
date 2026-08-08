@@ -56,8 +56,13 @@ public sealed class NativeExternalOverlay : IDisposable
     private ID2D1SolidColorBrush? _carFlippedBrush;
     private ID2D1SolidColorBrush? _carDeadBrush;
     private ID2D1SolidColorBrush? _cabinBrush;
+    private ID2D1SolidColorBrush? _stripeBrush;
     private ID2D1SolidColorBrush? _wheelBrush;
+    private ID2D1SolidColorBrush? _hubBrush;
+    private ID2D1SolidColorBrush? _glowBrush;
     private ID2D1SolidColorBrush? _strokeBrush;
+    private ID2D1SolidColorBrush? _trackBrush;
+    private ID2D1SolidColorBrush? _pedalBrush;
     private IDWriteFactory? _writeFactory;
     private IDWriteTextFormat? _textFormat;
 
@@ -335,14 +340,20 @@ public sealed class NativeExternalOverlay : IDisposable
         _renderTarget = _d2dFactory!.CreateHwndRenderTarget(properties, hwndProperties);
         _orangeBrush = _renderTarget.CreateSolidColorBrush(new Color4(1f, 0.55f, 0f, 0.9f));
         _redBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.86f, 0.24f, 0.24f, 0.9f));
-        _hudBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.98f, 0.96f, 0.88f, 0.95f));
-        // Play palette: warm white body, readable on Taskmgr blue chart.
-        _carBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.96f, 0.94f, 0.88f, 0.92f));
-        _carFlippedBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.95f, 0.72f, 0.28f, 0.9f));
-        _carDeadBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.75f, 0.28f, 0.28f, 0.88f));
-        _cabinBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.35f, 0.55f, 0.72f, 0.85f));
-        _wheelBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.12f, 0.12f, 0.12f, 0.92f));
-        _strokeBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.12f, 0.12f, 0.14f, 0.95f));
+        // TaskmgrPlayer: fill=ColorDark, stroke=ColorEdge. See ApplyTaskmgrPalette.
+        _hudBrush = _renderTarget.CreateSolidColorBrush(TmEdge);
+        _carBrush = _renderTarget.CreateSolidColorBrush(TmFill);
+        _carFlippedBrush = _renderTarget.CreateSolidColorBrush(new Color4(1f, 0.92f, 0.78f, 0.94f));
+        _carDeadBrush = _renderTarget.CreateSolidColorBrush(new Color4(1f, 0.88f, 0.88f, 0.94f));
+        _cabinBrush = _renderTarget.CreateSolidColorBrush(TmFill);
+        _stripeBrush = _renderTarget.CreateSolidColorBrush(TmEdge);
+        _wheelBrush = _renderTarget.CreateSolidColorBrush(TmFill);
+        _hubBrush = _renderTarget.CreateSolidColorBrush(TmFill);
+        _glowBrush = _renderTarget.CreateSolidColorBrush(TmWash);
+        _strokeBrush = _renderTarget.CreateSolidColorBrush(TmEdge);
+        _trackBrush = _renderTarget.CreateSolidColorBrush(TmWash);
+        _pedalBrush = _renderTarget.CreateSolidColorBrush(TmEdge);
+        ApplyTaskmgrPalette();
     }
 
     private void RenderFrame()
@@ -375,6 +386,10 @@ public sealed class NativeExternalOverlay : IDisposable
         {
             ApplyAccent(car.AccentB, car.AccentG, car.AccentR);
             DrawCar(target, car);
+            if (!ShowDebugChrome && car.IsRunning && !car.IsDead)
+            {
+                DrawThrottleBar(target, car);
+            }
         }
         else if (_heightField is { } hf)
         {
@@ -424,37 +439,43 @@ public sealed class NativeExternalOverlay : IDisposable
         }
     }
 
-    /// <summary>Tint play brushes from Taskmgr stroke (lunar-lander OverrideColor pattern).</summary>
-    private void ApplyAccent(byte b, byte g, byte r)
+    // TaskmgrPlayer/config.cfg — BGR→RGB.
+    // ColorEdge/Frame = 187,125,12 → RGB(12,125,187)  stroke
+    // ColorDark       = 250,246,241 → RGB(241,246,250)  fill
+    private static readonly Color4 TmEdge = new(12f / 255f, 125f / 255f, 187f / 255f, 1f);
+    private static readonly Color4 TmFill = new(241f / 255f, 246f / 255f, 250f / 255f, 0.94f);
+    private static readonly Color4 TmWash = new(241f / 255f, 246f / 255f, 250f / 255f, 0.75f);
+
+    /// <summary>Play paint: TaskmgrPlayer edge stroke + dark fill (not solid edge blob).</summary>
+    private void ApplyAccent(byte b, byte g, byte r) => ApplyTaskmgrPalette();
+
+    private void ApplyTaskmgrPalette()
     {
-        if (_hudBrush is null || _carBrush is null || _cabinBrush is null
-            || _carFlippedBrush is null || _carDeadBrush is null)
+        if (_hudBrush is null || _carBrush is null || _wheelBrush is null
+            || _pedalBrush is null || _strokeBrush is null || _trackBrush is null)
         {
             return;
         }
 
-        var rf = r / 255f;
-        var gf = g / 255f;
-        var bf = b / 255f;
-        _hudBrush.Color = new Color4(rf, gf, bf, 0.96f);
-        _carBrush.Color = new Color4(
-            System.Math.Min(1f, (rf * 0.5f) + 0.5f),
-            System.Math.Min(1f, (gf * 0.5f) + 0.5f),
-            System.Math.Min(1f, (bf * 0.5f) + 0.5f),
-            0.92f);
-        _cabinBrush.Color = new Color4(rf * 0.85f, gf * 0.85f, bf * 0.85f, 0.9f);
-        _carFlippedBrush.Color = new Color4(
-            System.Math.Min(1f, rf + 0.35f),
-            System.Math.Min(1f, gf + 0.15f),
-            bf * 0.45f,
-            0.9f);
-        _carDeadBrush.Color = new Color4(
-            System.Math.Min(1f, rf * 0.4f + 0.45f),
-            gf * 0.25f,
-            bf * 0.25f,
-            0.88f);
+        _hudBrush.Color = TmEdge;
+        _carBrush.Color = TmFill;
+        _wheelBrush.Color = TmFill;
+        _strokeBrush.Color = TmEdge;
+        _pedalBrush.Color = TmEdge;
+        _trackBrush.Color = TmWash;
+        if (_carFlippedBrush is not null)
+        {
+            // Warm fill; stroke still uses edge blue unless dead.
+            _carFlippedBrush.Color = new Color4(1f, 0.92f, 0.78f, 0.94f);
+        }
+
+        if (_carDeadBrush is not null)
+        {
+            _carDeadBrush.Color = new Color4(1f, 0.88f, 0.88f, 0.94f);
+        }
     }
 
+    /// <summary>Low poly: ColorDark fill + ColorEdge stroke (TaskmgrPlayer Binarylize roles).</summary>
     private void DrawCar(ID2D1HwndRenderTarget target, CarState car)
     {
         var frameW = _heightField?.FrameWidth ?? _roi?.Width ?? _pixelWidth;
@@ -471,45 +492,106 @@ public sealed class NativeExternalOverlay : IDisposable
         var hw = car.HalfWidth * sx;
         var hh = car.HalfHeight * sy;
         var wr = car.WheelRadius * Math.Min(sx, sy);
-        var body = car.IsDead
+        var ox = car.WheelOffsetX * sx;
+        var oy = car.WheelOffsetY * sy;
+        var fill = car.IsDead
             ? _carDeadBrush!
             : car.ControlsDisabled
                 ? _carFlippedBrush!
                 : _carBrush!;
+        // Always ColorEdge stroke (Binarylize edge role); fill is ColorDark / state wash.
+        var outline = _strokeBrush!;
+        if (car.IsDead)
+        {
+            outline.Color = new Color4(0.75f, 0.2f, 0.2f, 1f);
+        }
 
         // Box2D +angle is CCW in Y-up; D2D +angle is CW in Y-down → negate.
         var angle = -car.AngleRad;
+        const float strokeW = 2f;
         target.Transform = Matrix3x2.CreateRotation(angle, new Vector2(cx, cy));
-        target.FillRectangle(new Rect(cx - hw, cy - hh, hw * 2, hh * 2), body);
-        target.DrawRectangle(new Rect(cx - hw, cy - hh, hw * 2, hh * 2), _strokeBrush!, 1.5f);
-        target.FillRectangle(
-            new Rect(cx - hw * 0.35f, cy - hh * 1.6f, hw * 0.9f, hh * 0.7f),
-            _cabinBrush!);
-        target.DrawRectangle(
-            new Rect(cx - hw * 0.35f, cy - hh * 1.6f, hw * 0.9f, hh * 0.7f),
-            _strokeBrush!,
-            1.5f);
+
+        var body = new Rect(cx - hw, cy - hh, hw * 2f, hh * 2f);
+        target.FillRectangle(body, fill);
+        target.DrawRectangle(body, outline, strokeW);
+        var cabin = new Rect(cx - hw * 0.15f, cy - hh * 1.85f, hw * 0.85f, hh * 0.85f);
+        target.FillRectangle(cabin, fill);
+        target.DrawRectangle(cabin, outline, strokeW);
+
         target.Transform = Matrix3x2.Identity;
 
-        DrawWheel(target, cx, cy, -hw * 0.78f, hh * 0.35f, angle, wr);
-        DrawWheel(target, cx, cy, hw * 0.78f, hh * 0.35f, angle, wr);
+        DrawWheel(target, cx, cy, -ox, oy, angle, wr, fill, outline, strokeW);
+        DrawWheel(target, cx, cy, ox, oy, angle, wr, fill, outline, strokeW);
+
+        outline.Color = TmEdge;
     }
 
-    private void DrawWheel(
+    private static void DrawWheel(
         ID2D1HwndRenderTarget target,
         float cx,
         float cy,
         float localX,
         float localY,
         float angleRad,
-        float radius)
+        float radius,
+        ID2D1SolidColorBrush fill,
+        ID2D1SolidColorBrush outline,
+        float strokeW)
     {
         var cos = MathF.Cos(angleRad);
         var sin = MathF.Sin(angleRad);
         var x = cx + localX * cos - localY * sin;
         var y = cy + localX * sin + localY * cos;
-        target.FillEllipse(new Ellipse(new Vector2(x, y), radius, radius), _wheelBrush!);
-        target.DrawEllipse(new Ellipse(new Vector2(x, y), radius, radius), _strokeBrush!, 1.5f);
+        target.FillEllipse(new Ellipse(new Vector2(x, y), radius, radius), fill);
+        target.DrawEllipse(new Ellipse(new Vector2(x, y), radius, radius), outline, strokeW);
+    }
+
+    /// <summary>Vertical center-zero throttle: up forward / down reverse.</summary>
+    private void DrawThrottleBar(ID2D1HwndRenderTarget target, CarState car)
+    {
+        if (_trackBrush is null || _pedalBrush is null || _strokeBrush is null || _hudBrush is null)
+        {
+            return;
+        }
+
+        var barW = 8f;
+        var barH = System.Math.Clamp(_pixelHeight * 0.28f, 72f, 140f);
+        var x0 = 12f;
+        var y0 = System.Math.Max(36f, _pixelHeight - 28f - barH);
+        var track = new Rect(x0, y0, barW, barH);
+        target.FillRectangle(track, _trackBrush);
+        target.DrawRectangle(track, _strokeBrush, 1f);
+
+        var midY = y0 + (barH * 0.5f);
+        target.DrawLine(new Vector2(x0 - 2f, midY), new Vector2(x0 + barW + 2f, midY), _hudBrush, 1f);
+
+        var pedal = System.Math.Clamp(car.Pedal, -1f, 1f);
+        if (MathF.Abs(pedal) >= 0.02f)
+        {
+            float fillY;
+            float fillH;
+            if (pedal >= 0f)
+            {
+                fillH = (barH * 0.5f) * pedal;
+                fillY = midY - fillH;
+            }
+            else
+            {
+                fillH = (barH * 0.5f) * -pedal;
+                fillY = midY;
+            }
+
+            target.FillRectangle(
+                new Rect(x0 + 1f, fillY, barW - 2f, System.Math.Max(1f, fillH)),
+                _pedalBrush);
+        }
+
+        var label = MathF.Abs(pedal) < 0.02f ? "油门" : $"{(int)MathF.Round(pedal * 100f)}%";
+        target.DrawText(
+            label,
+            _textFormat!,
+            new Rect(x0 + barW + 6f, midY - 8f, 56f, 20f),
+            _hudBrush);
     }
 
     private void Hide()
@@ -582,8 +664,13 @@ public sealed class NativeExternalOverlay : IDisposable
         _carFlippedBrush?.Dispose();
         _carDeadBrush?.Dispose();
         _cabinBrush?.Dispose();
+        _stripeBrush?.Dispose();
         _wheelBrush?.Dispose();
+        _hubBrush?.Dispose();
+        _glowBrush?.Dispose();
         _strokeBrush?.Dispose();
+        _trackBrush?.Dispose();
+        _pedalBrush?.Dispose();
         _renderTarget?.Dispose();
         _orangeBrush = null;
         _redBrush = null;
@@ -592,8 +679,13 @@ public sealed class NativeExternalOverlay : IDisposable
         _carFlippedBrush = null;
         _carDeadBrush = null;
         _cabinBrush = null;
+        _stripeBrush = null;
         _wheelBrush = null;
+        _hubBrush = null;
+        _glowBrush = null;
         _strokeBrush = null;
+        _trackBrush = null;
+        _pedalBrush = null;
         _renderTarget = null;
     }
 
