@@ -34,8 +34,13 @@
   </ItemGroup>
 
   <!-- Win desktop does not need package RID folders (e.g. System.Text.*.browser). -->
-  <Target Name="StripUnusedRuntimeFolders" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
-    <RemoveDir Directories="$(OutputPath)runtimes" Condition="Exists('$(OutputPath)runtimes')" />
+  <Target Name="StripUnusedRuntimeFolders"
+          AfterTargets="CopyFilesToOutputDirectory"
+          Condition="'$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <_AppOutDir>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\$(OutputPath)'))</_AppOutDir>
+    </PropertyGroup>
+    <RemoveDir Directories="$(_AppOutDir)runtimes" Condition="Exists('$(_AppOutDir)runtimes')" />
   </Target>
 
 </Project>
