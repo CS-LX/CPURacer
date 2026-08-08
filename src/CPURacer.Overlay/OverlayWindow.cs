@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
+using CPURacer.Capture;
 using CPURacer.Native;
 using CPURacer.Taskmgr;
 
@@ -24,6 +25,8 @@ public sealed class OverlayWindow : Window
     private int _savedExStyle;
     private int _lastChildW = -1;
     private int _lastChildH = -1;
+    private HeightField? _heightField;
+    private string _captureStatus = "";
 
     public OverlayWindow()
     {
@@ -39,10 +42,18 @@ public sealed class OverlayWindow : Window
         Left = 120;
         Top = OffscreenTop;
         ShowDebugChrome = true;
-        SourceInitialized += (_, _) => EnsureHandle();
+        SourceInitialized += (_, _) =>
+        {
+            var hwnd = EnsureHandle();
+            // Keep the visible overlay out of desktop capture without hide/show flashing.
+            _ = NativeMethods.SetWindowDisplayAffinity(hwnd, NativeMethods.WdaExcludeFromCapture);
+        };
     }
 
     public bool ShowDebugChrome { get; set; }
+
+    /// <summary>Draw extracted height-field polyline (orange) for M2 fit check.</summary>
+    public bool ShowFitPolyline { get; set; } = true;
 
     /// <summary>Optional plot inset in physical pixels (M2+).</summary>
     public Thickness PlotInsetPx { get; set; }
@@ -85,16 +96,29 @@ public sealed class OverlayWindow : Window
         if (roi is null)
         {
             _statusText = "CPURacer — no CPU chart";
+            _heightField = null;
             DetachFromChart();
             HideOverlaySurface();
             return;
         }
 
-        var r = roi.Value;
-        var tag = FollowMode == TrackFollowMode.Child ? "child" : "external";
-        _statusText =
-            $"CPURacer [{tag}] — {r.Width}x{r.Height} dpi={r.Dpi} charts={r.VisibleChartCount} show={r.ShouldShow} cpu={r.IsCpuPage}";
+        RefreshStatusText();
         ApplyPlacement();
+    }
+
+    public void SetHeightField(HeightField? field, string captureStatus = "")
+    {
+        _heightField = field;
+        _captureStatus = captureStatus;
+        RefreshStatusText();
+        InvalidateVisual();
+    }
+
+    public void SetCaptureStatus(string captureStatus)
+    {
+        _captureStatus = captureStatus;
+        RefreshStatusText();
+        InvalidateVisual();
     }
 
     public void ShowPlaceholder()
@@ -134,14 +158,24 @@ public sealed class OverlayWindow : Window
     protected override void OnRender(DrawingContext drawingContext)
     {
         base.OnRender(drawingContext);
-        if (!ShowDebugChrome || ActualWidth <= 2 || ActualHeight <= 2)
+        if (ActualWidth <= 2 || ActualHeight <= 2)
+        {
+            return;
+        }
+
+        if (ShowFitPolyline && _heightField is { PlotWidth: > 1 } field)
+        {
+            DrawFitPolyline(drawingContext, field);
+        }
+
+        if (!ShowDebugChrome)
         {
             return;
         }
 
         var pen = new Pen(new SolidColorBrush(Color.FromArgb(200, 220, 60, 60)), 2);
         drawingContext.DrawRectangle(
-            new SolidColorBrush(Color.FromArgb(40, 220, 60, 60)),
+            null,
             pen,
             new Rect(1, 1, ActualWidth - 2, ActualHeight - 2));
 
@@ -154,6 +188,54 @@ public sealed class OverlayWindow : Window
             new SolidColorBrush(Color.FromArgb(230, 220, 60, 60)),
             VisualTreeHelper.GetDpi(this).PixelsPerDip);
         drawingContext.DrawText(text, new Point(10, 8));
+    }
+
+    private void DrawFitPolyline(DrawingContext dc, HeightField field)
+    {
+        var sx = ActualWidth / field.FrameWidth;
+        var sy = ActualHeight / field.FrameHeight;
+        var geo = new StreamGeometry();
+        using (var ctx = geo.Open())
+        {
+            var inset = field.Inset;
+            var first = true;
+            for (var i = 0; i < field.PlotWidth; i++)
+            {
+                var x = (inset.Left + i + 0.5) * sx;
+                var y = field.YFromTop[i] * sy;
+                var pt = new Point(x, y);
+                if (first)
+                {
+                    ctx.BeginFigure(pt, false, false);
+                    first = false;
+                }
+                else
+                {
+                    ctx.LineTo(pt, true, false);
+                }
+            }
+        }
+
+        geo.Freeze();
+        // Orange — must not look like Taskmgr blue, or BitBlt feedback slowly lifts the fit.
+        var pen = new Pen(new SolidColorBrush(Color.FromArgb(230, 255, 140, 0)), 2.0);
+        pen.Freeze();
+        dc.DrawGeometry(null, pen, geo);
+    }
+
+    private void RefreshStatusText()
+    {
+        if (_roi is null)
+        {
+            _statusText = "CPURacer — no CPU chart";
+            return;
+        }
+
+        var r = _roi.Value;
+        var tag = FollowMode == TrackFollowMode.Child ? "child" : "external";
+        var cap = string.IsNullOrEmpty(_captureStatus) ? "" : $" {_captureStatus}";
+        _statusText =
+            $"CPURacer [{tag}] — {r.Width}x{r.Height} dpi={r.Dpi} show={r.ShouldShow}{cap}";
     }
 
     private void ApplyPlacement()

@@ -17,6 +17,7 @@ public static class NativeMethods
     public const int WsExTransparent = 0x00000020;
     public const int WsExNoActivate = 0x08000000;
     public const int WsExToolWindow = 0x00000080;
+    public const uint WdaExcludeFromCapture = 0x00000011;
 
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
@@ -77,6 +78,9 @@ public static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
 
     public const int SwHide = 0;
     public const int SwShow = 5;

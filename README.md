@@ -66,5 +66,9 @@ dotnet run --project src\CPURacer.App --no-build
 
 ## 状态
 
-**M1.5 已验收**：`TrackNative` + 双跟随方式已接入。可进入 M2（合成帧 / 蓝线拟合）。  
-完整性 × 跟随方式的已知限制见 [docs/research/M1.5-验收-跟随与完整性.md](docs/research/M1.5-验收-跟随与完整性.md)。
+**M2 进行中**：Screen ROI 捕获 + 高度场 + Overlay **调试拟合线**已接入（见 [docs/research/M2-捕获与拟合.md](docs/research/M2-捕获与拟合.md)）。
+M1.5 已验收；完整性限制见 [docs/research/M1.5-验收-跟随与完整性.md](docs/research/M1.5-验收-跟随与完整性.md)。
+
+### M2 快速试跑
+
+普通权限 → 外部 Overlay → 性能/CPU → 开始跟踪 → 勾选 **调试拟合线**。状态应出现 `cap=ok cols=…`，橙色线应对齐蓝线。
