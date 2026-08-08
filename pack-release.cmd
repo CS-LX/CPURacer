@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions EnableDelayedExpansion
+setlocal EnableExtensions
 cd /d "%~dp0"
 
 set "CONFIG=Release"
@@ -18,35 +18,24 @@ if not exist "%OUT%\CPURacer.TrackNative.dll" (
   exit /b 1
 )
 
+rem Sanity: Release must not leave PDBs in App output (see src/Directory.Build.props + TrackNative).
+dir /b "%OUT%\*.pdb" 2>nul | findstr /r "." >nul
+if not errorlevel 1 (
+  echo ERROR: PDB files found under %OUT% — fix Release symbol settings, do not strip at pack time.
+  dir /b "%OUT%\*.pdb"
+  exit /b 1
+)
+
 set "STAGE=%TEMP%\CPURacer-pack-%RANDOM%"
 set "NAME=CPURacer-%VER%-win-x64"
 set "DIST=%~dp0dist"
 mkdir "%DIST%" 2>nul
 mkdir "%STAGE%\%NAME%" 2>nul
 
-rem Whitelist runtime files only — no pdb / lib / exp / xml / obj junk.
-robocopy "%OUT%" "%STAGE%\%NAME%" *.exe *.dll *.json /NFL /NDL /NJH /NJS /nc /ns /np /XF *.pdb *.xml *.lib *.exp >nul
+rem Output dir is already pack-ready; copy as-is.
+robocopy "%OUT%" "%STAGE%\%NAME%" /E /NFL /NDL /NJH /NJS /nc /ns /np >nul
 if errorlevel 8 (
   echo ERROR: robocopy failed
-  rd /s /q "%STAGE%" 2>nul
-  exit /b 1
-)
-
-rem Belt-and-suspenders: purge any debug leftovers if patterns slip through.
-del /s /q "%STAGE%\%NAME%\*.pdb" 2>nul
-del /s /q "%STAGE%\%NAME%\*.xml" 2>nul
-del /s /q "%STAGE%\%NAME%\*.lib" 2>nul
-del /s /q "%STAGE%\%NAME%\*.exp" 2>nul
-del /s /q "%STAGE%\%NAME%\*.iobj" 2>nul
-del /s /q "%STAGE%\%NAME%\*.ipdb" 2>nul
-
-if not exist "%STAGE%\%NAME%\CPURacer.exe" (
-  echo ERROR: staged package missing CPURacer.exe
-  rd /s /q "%STAGE%" 2>nul
-  exit /b 1
-)
-if not exist "%STAGE%\%NAME%\CPURacer.TrackNative.dll" (
-  echo ERROR: staged package missing TrackNative.dll
   rd /s /q "%STAGE%" 2>nul
   exit /b 1
 )

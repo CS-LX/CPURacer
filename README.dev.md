@@ -11,8 +11,8 @@
 **硬规则：** 开发期用仓库根目录一行构建；原生 DLL 自动进 App 输出目录，禁止构建后再手工拷贝。
 
 ```powershell
-.\build.cmd              # Debug
-.\build.cmd Release      # Release
+.\build.cmd              # Debug（含 PDB）
+.\build.cmd Release      # Release（不产出 PDB；见 src/Directory.Build.props）
 ```
 
 运行（构建后）：
