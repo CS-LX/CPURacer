@@ -269,7 +269,18 @@ bool IsForegroundRelated(HWND mainHwnd, HWND chartHwnd) {
             return true;
         }
     }
-    return false;
+
+    // Win11 XAML Taskmgr may foreground a separate top-level HWND owned by the
+    // same process, so its parent chain never reaches TaskManagerWindow.
+    DWORD foregroundPid = 0;
+    DWORD taskmgrPid = 0;
+    if (fg) {
+        GetWindowThreadProcessId(fg, &foregroundPid);
+    }
+    if (mainHwnd) {
+        GetWindowThreadProcessId(mainHwnd, &taskmgrPid);
+    }
+    return foregroundPid != 0 && foregroundPid == taskmgrPid;
 }
 
 enum class FindChartResult {

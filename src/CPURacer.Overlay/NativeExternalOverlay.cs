@@ -20,21 +20,18 @@ public sealed class NativeExternalOverlay : IDisposable
 {
     private const uint WsPopup = 0x80000000;
     private const uint WsExTransparent = 0x00000020;
+    private const uint WsExTopmost = 0x00000008;
     private const uint WsExToolWindow = 0x00000080;
     private const uint WsExLayered = 0x00080000;
     private const uint WsExNoActivate = 0x08000000;
 
     private const int SwHide = 0;
-    private const uint SwpNoSize = 0x0001;
-    private const uint SwpNoMove = 0x0002;
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpShowWindow = 0x0040;
     private const uint SwpNoOwnerZOrder = 0x0200;
     private const uint LwaAlpha = 0x00000002;
     private const uint WmDestroy = 0x0002;
-
-    private static readonly IntPtr HwndTop = IntPtr.Zero;
 
     private readonly WndProc _wndProc;
     private readonly string _className = $"CPURacer.NativeOverlay.{Guid.NewGuid():N}";
@@ -126,6 +123,8 @@ public sealed class NativeExternalOverlay : IDisposable
         }
 
         var targetForeground = IsForegroundRelated(previous.MainHwnd, previous.ChartHwnd);
+        var appForeground = IsForegroundProcess((uint)Environment.ProcessId);
+        var shouldShow = targetForeground || appForeground || ForceVisible;
         _roi = new ChartRoi(
             previous.ChartHwnd,
             previous.MainHwnd,
@@ -138,7 +137,14 @@ public sealed class NativeExternalOverlay : IDisposable
             targetForeground,
             previous.IsCpuPage);
 
-        if (!PlaceAndShow(rect, targetForeground))
+        if (!shouldShow)
+        {
+            CaptureStatus = "cap=occluded";
+            Hide();
+            return;
+        }
+
+        if (!PlaceAndShow(rect))
         {
             return;
         }
@@ -197,7 +203,8 @@ public sealed class NativeExternalOverlay : IDisposable
             throw new InvalidOperationException($"RegisterClassEx failed: {Marshal.GetLastWin32Error()}");
         }
 
-        const uint exStyle = WsExLayered | WsExTransparent | WsExNoActivate | WsExToolWindow;
+        const uint exStyle =
+            WsExLayered | WsExTransparent | WsExTopmost | WsExNoActivate | WsExToolWindow;
         _hwnd = CreateWindowEx(
             exStyle,
             _className,
@@ -234,7 +241,7 @@ public sealed class NativeExternalOverlay : IDisposable
             "zh-CN");
     }
 
-    private bool PlaceAndShow(RECT rect, bool targetForeground)
+    private bool PlaceAndShow(RECT rect)
     {
         // Geometry/show is independent of cross-process relative Z-order.
         if (!SetWindowPos(
@@ -259,22 +266,6 @@ public sealed class NativeExternalOverlay : IDisposable
             _pixelWidth = rect.Width;
             _pixelHeight = rect.Height;
             _renderTarget?.Resize(new SizeI(_pixelWidth, _pixelHeight));
-        }
-
-        // Raising our own normal-tier HWND to HWND_TOP while Taskmgr is foreground
-        // avoids a cross-process hWndInsertAfter dependency. When another app becomes
-        // foreground, Windows naturally raises it above both Taskmgr and this overlay.
-        if (targetForeground
-            && !SetWindowPos(
-                _hwnd,
-                HwndTop,
-                0,
-                0,
-                0,
-                0,
-                SwpNoMove | SwpNoSize | SwpNoActivate | SwpNoOwnerZOrder))
-        {
-            WindowStatus = $"window=z-fail({Marshal.GetLastWin32Error()})";
         }
 
         if (!DisplayAffinityApplied && DisplayAffinityError == 0)
@@ -386,7 +377,8 @@ public sealed class NativeExternalOverlay : IDisposable
 
     private static bool IsForegroundRelated(IntPtr mainHwnd, IntPtr chartHwnd)
     {
-        for (var current = NativeMethods.GetForegroundWindow();
+        var foreground = NativeMethods.GetForegroundWindow();
+        for (var current = foreground;
              current != IntPtr.Zero;
              current = NativeMethods.GetParent(current))
         {
@@ -396,7 +388,29 @@ public sealed class NativeExternalOverlay : IDisposable
             }
         }
 
-        return false;
+        // Win11's XAML Taskmgr can expose the active surface as a separate top-level
+        // HWND in the same process instead of a descendant of TaskManagerWindow.
+        // Parent-only matching therefore reports false after a tray/Alt+Tab round trip.
+        if (foreground == IntPtr.Zero || mainHwnd == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        _ = NativeMethods.GetWindowThreadProcessId(foreground, out var foregroundPid);
+        _ = NativeMethods.GetWindowThreadProcessId(mainHwnd, out var taskmgrPid);
+        return foregroundPid != 0 && foregroundPid == taskmgrPid;
+    }
+
+    private static bool IsForegroundProcess(uint processId)
+    {
+        var foreground = NativeMethods.GetForegroundWindow();
+        if (foreground == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        _ = NativeMethods.GetWindowThreadProcessId(foreground, out var foregroundPid);
+        return foregroundPid != 0 && foregroundPid == processId;
     }
 
     private IntPtr WindowProcedure(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam)

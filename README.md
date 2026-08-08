@@ -67,10 +67,13 @@ dotnet run --project src\CPURacer.App --no-build
 
 ## 状态
 
-**M2.6 手工验收中**：External 已迁移到原生 Win32 + Direct2D；WPF 仅保留 Child。见 [M2.6 迁移笔记](docs/research/M2.6-原生ExternalOverlay迁移.md)。
-M2 拟合仍可用；M3 物理在 stash，待 Overlay 稳健后再恢复。
+**M2.6.2 已通过**：External 已迁移到原生 Win32 + Direct2D，使用独立 Dispatcher 帧时钟；因普通权限下跨进程相对 Z 序被 Windows 拒绝，采用原生 Topmost + 前台进程显隐。WPF 仅保留 Child。见 [M2.6 迁移笔记](docs/research/M2.6-原生ExternalOverlay迁移.md)。
+M2 拟合仍可用；M3 物理在 stash，可在 Overlay 门禁稳定后恢复。
 
 ### M2 / M2.5 快速试跑
 
 普通权限 → **外部 Overlay** → 性能/CPU → 开始跟踪 → 勾选 **调试拟合线**。
 静止时红框/橙线应持续可见；点击 Overlay 不应消失；状态含 `cap=ok cols=…`。
+
+重点回归：右键托盘打开菜单（可不点菜单项）→ 点回 Taskmgr 图表空白；Overlay
+不得被 Taskmgr 盖住。菜单打开期间拟合线可暂时停帧，点回 Taskmgr 后应恢复滚动。
