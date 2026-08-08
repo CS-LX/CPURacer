@@ -66,12 +66,15 @@ dotnet run --project src\CPURacer.App --no-build
 - [docs/research/TaskmgrPlayer-调研.md](docs/research/TaskmgrPlayer-调研.md)
 - [docs/research/M2.5-Overlay主循环对齐.md](docs/research/M2.5-Overlay主循环对齐.md)
 - [docs/research/M3-物理赛车.md](docs/research/M3-物理赛车.md)
+- [docs/research/M4-玩家壳与发布.md](docs/research/M4-玩家壳与发布.md)
 
 ## 状态
 
 **M2.6.2 已通过**：External 已迁移到原生 Win32 + Direct2D，使用独立 Dispatcher 帧时钟；因普通权限下跨进程相对 Z 序被 Windows 拒绝，采用原生 Topmost + 前台进程显隐。WPF 仅保留 Child。见 [M2.6 迁移笔记](docs/research/M2.6-原生ExternalOverlay迁移.md)。
 
-**M3 可玩验收通过（非侵入）**：旁路 RaceHost + 世界折线续铺/视口投影 + 硬轴无级油门；Overlay 只出高度场、`SetCarPose` 画车，不改 `TickExternalFrame`。见 [M3-物理赛车.md](docs/research/M3-物理赛车.md)。下一可选里程碑为 M4（降级/发布预备）。
+**M3 可玩验收通过（非侵入）**：旁路 RaceHost + 世界折线续铺/视口投影 + 硬轴无级油门；Overlay 只出高度场、`SetCarPose` 画车，不改 `TickExternalFrame`。见 [M3-物理赛车.md](docs/research/M3-物理赛车.md)。
+
+**下一里程碑 M4（可选）**：Play/Debug 分离、玩法循环与提示、观感；并含降级/管理员提示与发布预备。见 [M4-玩家壳与发布.md](docs/research/M4-玩家壳与发布.md)。
 
 ### M2 / M2.5 快速试跑
 
