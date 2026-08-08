@@ -1,0 +1,7 @@
+<Project>
+  <!-- Release output stays pack-ready: no PDBs next to the player binaries. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+</Project>
