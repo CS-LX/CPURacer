@@ -121,6 +121,9 @@ public partial class App : Application
 
         // Player UX: watch Taskmgr immediately (lunar _watcher.Start on launch).
         StartTracking();
+
+        // UIPI: non-admin vs elevated Taskmgr — tip once at launch (not only on race start).
+        MaybeWarnNonAdmin();
     }
 
     private void BuildTray()
@@ -637,8 +640,10 @@ public partial class App : Application
 
         _adminTipShown = true;
         Forms.MessageBox.Show(
-            "若 Taskmgr 以管理员运行而本程序不是，W/S 可能无响应（UIPI）。\n" +
-            "请对本程序「以管理员身份运行」后再赛。",
+            "当前不是管理员运行。\n\n" +
+            "若任务管理器是管理员启动的，本程序的 W/S 可能无响应（UIPI）。\n" +
+            "建议：退出后对本程序「以管理员身份运行」。\n\n" +
+            "若 Taskmgr 也是普通权限，可忽略本提示。",
             "CPURacer",
             Forms.MessageBoxButtons.OK,
             Forms.MessageBoxIcon.Information);
