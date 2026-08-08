@@ -4,7 +4,7 @@ cd /d "%~dp0"
 
 set "CONFIG=Release"
 set "OUT=src\CPURacer.App\bin\%CONFIG%\net8.0-windows"
-set "VER=0.4.0"
+set "VER=0.4.1"
 if not "%~1"=="" set "VER=%~1"
 
 if not exist "%OUT%\CPURacer.exe" (
