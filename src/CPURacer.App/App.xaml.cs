@@ -29,7 +29,7 @@ public partial class App : Application
     private readonly ScreenRoiCapture _capture = new();
     private readonly HeightFieldExtractor _extractor = new();
     private DispatcherTimer? _captureTimer;
-    private bool _externalLoopHooked;
+    private DispatcherTimer? _externalTimer;
     private int _captureFailStreak;
     private int _externalFrameFailStreak;
     private string _capStatus = "";
@@ -65,12 +65,20 @@ public partial class App : Application
             }
         };
 
-        // Child mode only: External uses CompositionTarget (copy-dialog-style).
+        // Child capture remains at 30 Hz.
         _captureTimer = new DispatcherTimer(DispatcherPriority.Render)
         {
             Interval = TimeSpan.FromMilliseconds(33),
         };
         _captureTimer.Tick += (_, _) => CaptureTickChild();
+
+        // Native External HWND does not participate in WPF composition. A dedicated
+        // dispatcher clock must keep ticking while the zero-sized WPF shell is hidden.
+        _externalTimer = new DispatcherTimer(DispatcherPriority.Render)
+        {
+            Interval = TimeSpan.FromMilliseconds(16),
+        };
+        _externalTimer.Tick += OnExternalTick;
 
         BuildTray();
 
@@ -219,7 +227,7 @@ public partial class App : Application
         UpdateTrayTip(roi);
     }
 
-    private void OnExternalRendering(object? sender, EventArgs e)
+    private void OnExternalTick(object? sender, EventArgs e)
     {
         if (_nativeOverlay is null || _watcher is null || !_watcher.IsTracking)
         {
@@ -238,9 +246,8 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            // Match copy-dialog's frame-level isolation: one transient placement/
-            // drawing failure must not tear down WPF's global Rendering chain.
-            // Keep the previous backing frame and retry on the next composition frame.
+            // One transient placement/drawing failure must not stop the dispatcher
+            // clock. Keep the previous native frame and retry on the next tick.
             _externalFrameFailStreak++;
             if (_externalFrameFailStreak == 1 || _externalFrameFailStreak % 60 == 0)
             {
@@ -281,24 +288,12 @@ public partial class App : Application
 
     private void StartExternalLoop()
     {
-        if (_externalLoopHooked)
-        {
-            return;
-        }
-
-        CompositionTarget.Rendering += OnExternalRendering;
-        _externalLoopHooked = true;
+        _externalTimer?.Start();
     }
 
     private void StopExternalLoop()
     {
-        if (!_externalLoopHooked)
-        {
-            return;
-        }
-
-        CompositionTarget.Rendering -= OnExternalRendering;
-        _externalLoopHooked = false;
+        _externalTimer?.Stop();
     }
 
     private void SetFollowMode(TrackFollowMode mode)
@@ -488,6 +483,7 @@ public partial class App : Application
         StopExternalLoop();
         _captureTimer?.Stop();
         _captureTimer = null;
+        _externalTimer = null;
 
         _watcher?.Dispose();
         _watcher = null;

@@ -296,7 +296,8 @@ public sealed class TaskmgrWatcher : IDisposable
 
     private static bool IsForegroundRelated(IntPtr mainHwnd, IntPtr chartHwnd)
     {
-        for (var cur = NativeMethods.GetForegroundWindow(); cur != IntPtr.Zero; cur = NativeMethods.GetParent(cur))
+        var foreground = NativeMethods.GetForegroundWindow();
+        for (var cur = foreground; cur != IntPtr.Zero; cur = NativeMethods.GetParent(cur))
         {
             if (cur == mainHwnd || cur == chartHwnd)
             {
@@ -304,7 +305,14 @@ public sealed class TaskmgrWatcher : IDisposable
             }
         }
 
-        return false;
+        if (foreground == IntPtr.Zero || mainHwnd == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        _ = NativeMethods.GetWindowThreadProcessId(foreground, out var foregroundPid);
+        _ = NativeMethods.GetWindowThreadProcessId(mainHwnd, out var taskmgrPid);
+        return foregroundPid != 0 && foregroundPid == taskmgrPid;
     }
 
     private static void CollectVisibleCharts(IntPtr parent, List<(IntPtr Hwnd, RECT Rect)> charts)
