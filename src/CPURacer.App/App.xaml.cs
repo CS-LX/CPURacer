@@ -1,9 +1,9 @@
-﻿using System.Drawing;
+using System.Drawing;
 using System.Diagnostics;
 using System.Windows;
-using System.Windows.Media;
 using System.Windows.Threading;
 using CPURacer.Capture;
+using CPURacer.Game;
 using CPURacer.Overlay;
 using CPURacer.Taskmgr;
 using Application = System.Windows.Application;
@@ -19,6 +19,8 @@ public partial class App : Application
     private Forms.ToolStripMenuItem? _statusItem;
     private Forms.ToolStripMenuItem? _followExternalItem;
     private Forms.ToolStripMenuItem? _followChildItem;
+    private Forms.ToolStripMenuItem? _raceItem;
+    private Forms.ToolStripMenuItem? _restartItem;
     private OverlayWindow? _overlay;
     private NativeExternalOverlay? _nativeOverlay;
     private TaskmgrWatcher? _watcher;
@@ -28,17 +30,23 @@ public partial class App : Application
 
     private readonly ScreenRoiCapture _capture = new();
     private readonly HeightFieldExtractor _extractor = new();
+    private readonly RaceSim _race = new();
     private DispatcherTimer? _captureTimer;
     private DispatcherTimer? _externalTimer;
+    private DispatcherTimer? _raceTimer;
     private int _captureFailStreak;
     private int _externalFrameFailStreak;
     private string _capStatus = "";
     private int _trayTipFrame;
+    private bool _raceWanted;
+    private bool _spaceWasDown;
+    private TimeSpan _lastRaceTime;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         Forms.Application.SetHighDpiMode(Forms.HighDpiMode.PerMonitorV2);
         base.OnStartup(e);
+        GameInput.Install();
 
         _overlay = new OverlayWindow
         {
@@ -51,6 +59,10 @@ public partial class App : Application
             ShowDebugChrome = _debugOverlay,
             ShowFitPolyline = _showFitPolyline,
         };
+        // Terrain egress only — never run physics inside TickExternalFrame.
+        _overlay.HeightFieldUpdated += OnHeightFieldUpdated;
+        _nativeOverlay.HeightFieldUpdated += OnHeightFieldUpdated;
+
         _watcher = new TaskmgrWatcher();
         _watcher.SetFollowMode(_followMode);
         _watcher.RoiChanged += roi =>
@@ -79,6 +91,13 @@ public partial class App : Application
             Interval = TimeSpan.FromMilliseconds(16),
         };
         _externalTimer.Tick += OnExternalTick;
+
+        // Bypass clock for RaceSim — must not share OnExternalTick / TickExternalFrame.
+        _raceTimer = new DispatcherTimer(DispatcherPriority.Render)
+        {
+            Interval = TimeSpan.FromMilliseconds(16),
+        };
+        _raceTimer.Tick += OnRaceHostTick;
 
         BuildTray();
 
@@ -120,6 +139,14 @@ public partial class App : Application
         followMenu.DropDownItems.Add(_followChildItem);
         menu.Items.Add(followMenu);
         SyncFollowMenu();
+
+        _raceItem = new Forms.ToolStripMenuItem("开始比赛");
+        _raceItem.Click += (_, _) => ToggleRace();
+        menu.Items.Add(_raceItem);
+
+        _restartItem = new Forms.ToolStripMenuItem("重开（Space）") { Enabled = false };
+        _restartItem.Click += (_, _) => RestartRace();
+        menu.Items.Add(_restartItem);
 
         _overlayItem = new Forms.ToolStripMenuItem("手动显示 Overlay");
         _overlayItem.Click += (_, _) => ToggleOverlayManual();
@@ -265,11 +292,85 @@ public partial class App : Application
         }
     }
 
+    private void OnHeightFieldUpdated(HeightField field)
+    {
+        if (!_raceWanted && !_race.IsRunning && !_race.IsDead)
+        {
+            return;
+        }
+
+        _race.SetTerrain(field);
+        if (_raceWanted && !_race.IsRunning && !_race.IsDead)
+        {
+            _race.Start();
+            SyncRaceMenu();
+        }
+    }
+
+    /// <summary>
+    /// Bypass clock: physics + SetCarPose only. Must not mutate tray/menu every frame.
+    /// </summary>
+    private void OnRaceHostTick(object? sender, EventArgs e)
+    {
+        if (!_raceWanted && !_race.IsRunning && !_race.IsDead)
+        {
+            return;
+        }
+
+        var now = TimeSpan.FromTicks(DateTime.UtcNow.Ticks);
+        if (_lastRaceTime == TimeSpan.Zero)
+        {
+            _lastRaceTime = now;
+        }
+
+        var dt = (now - _lastRaceTime).TotalSeconds;
+        _lastRaceTime = now;
+        if (dt <= 0 || dt > 0.25)
+        {
+            dt = 1.0 / 60.0;
+        }
+
+        var space = GameInput.RestartPressed;
+        if (space && !_spaceWasDown)
+        {
+            RestartRace();
+        }
+
+        _spaceWasDown = space;
+
+        var wasRunning = _race.IsRunning;
+        // Always sample keys while race host is alive (including dead / waiting).
+        var throttle = GameInput.ThrottleDown;
+        var brake = GameInput.BrakeDown;
+        if (_race.IsRunning)
+        {
+            _race.SetInput(throttle, brake);
+            _race.Step(dt);
+        }
+
+        var car = _race.GetCarState();
+        if (_followMode == TrackFollowMode.External)
+        {
+            _nativeOverlay?.SetCarPose(car);
+        }
+        else
+        {
+            _overlay?.SetCarPose(car);
+        }
+
+        // Edge-only menu sync (e.g. running → dead). Never every-frame SyncRaceMenu.
+        if (wasRunning != _race.IsRunning)
+        {
+            SyncRaceMenu();
+        }
+    }
+
     private void SyncPipelineClocks()
     {
         if (_watcher?.IsTracking != true)
         {
             StopExternalLoop();
+            StopRaceHostLoop();
             _captureTimer?.Stop();
             return;
         }
@@ -284,6 +385,21 @@ public partial class App : Application
             StopExternalLoop();
             _captureTimer?.Start();
         }
+
+        SyncRaceHostLoop();
+    }
+
+    private void SyncRaceHostLoop()
+    {
+        var need = _raceWanted || _race.IsRunning || _race.IsDead;
+        if (need)
+        {
+            StartRaceHostLoop();
+        }
+        else
+        {
+            StopRaceHostLoop();
+        }
     }
 
     private void StartExternalLoop()
@@ -294,6 +410,96 @@ public partial class App : Application
     private void StopExternalLoop()
     {
         _externalTimer?.Stop();
+    }
+
+    private void StartRaceHostLoop()
+    {
+        if (_raceTimer is null || _raceTimer.IsEnabled)
+        {
+            return;
+        }
+
+        _lastRaceTime = TimeSpan.Zero;
+        _raceTimer.Start();
+    }
+
+    private void StopRaceHostLoop()
+    {
+        _raceTimer?.Stop();
+    }
+
+    private void ToggleRace()
+    {
+        if (_raceWanted || _race.IsRunning)
+        {
+            _raceWanted = false;
+            _race.Stop();
+            _overlay?.SetCarPose(null);
+            _nativeOverlay?.SetCarPose(null);
+            StopRaceHostLoop();
+            SyncRaceMenu();
+            UpdateTrayTip(_watcher?.CurrentRoi);
+            return;
+        }
+
+        if (_watcher?.IsTracking != true)
+        {
+            Forms.MessageBox.Show("请先开始跟踪 Taskmgr CPU 图。", "CPURacer",
+                Forms.MessageBoxButtons.OK, Forms.MessageBoxIcon.Information);
+            return;
+        }
+
+        _raceWanted = true;
+        _lastRaceTime = TimeSpan.Zero;
+        // Do not force ShowFitPolyline=false — keeps M2.6 visual defaults intact.
+        var field = _followMode == TrackFollowMode.External
+            ? _nativeOverlay?.CurrentHeightField
+            : _overlay?.CurrentHeightField;
+        if (field is not null)
+        {
+            _race.SetTerrain(field);
+            _race.Start();
+        }
+
+        SyncRaceHostLoop();
+        SyncRaceMenu();
+        UpdateTrayTip(_watcher.CurrentRoi);
+    }
+
+    private void RestartRace()
+    {
+        if (!_raceWanted && !_race.IsDead && !_race.IsRunning)
+        {
+            return;
+        }
+
+        _raceWanted = true;
+        _lastRaceTime = TimeSpan.Zero;
+        var field = _followMode == TrackFollowMode.External
+            ? _nativeOverlay?.CurrentHeightField
+            : _overlay?.CurrentHeightField;
+        if (field is not null)
+        {
+            _race.SetTerrain(field);
+        }
+
+        _race.Restart();
+        SyncRaceHostLoop();
+        SyncRaceMenu();
+    }
+
+    private void SyncRaceMenu()
+    {
+        if (_raceItem is not null)
+        {
+            var active = _raceWanted || _race.IsRunning;
+            _raceItem.Text = active ? "停止比赛" : "开始比赛";
+        }
+
+        if (_restartItem is not null)
+        {
+            _restartItem.Enabled = _raceWanted || _race.IsRunning || _race.IsDead;
+        }
     }
 
     private void SetFollowMode(TrackFollowMode mode)
@@ -310,11 +516,13 @@ public partial class App : Application
         {
             if (mode == TrackFollowMode.External)
             {
+                _overlay?.SetCarPose(null);
                 _overlay?.ClearRoi();
                 _nativeOverlay?.ApplyRoi(_watcher.CurrentRoi);
             }
             else
             {
+                _nativeOverlay?.SetCarPose(null);
                 _nativeOverlay?.ClearRoi();
                 if (_overlay is not null)
                 {
@@ -376,6 +584,7 @@ public partial class App : Application
 
         var backend = _watcher.UsingNativeTracker ? "native" : "managed";
         var follow = _followMode == TrackFollowMode.Child ? "child" : "external";
+        var race = _race.IsDead ? "dead" : _race.IsRunning ? "race" : _raceWanted ? "wait" : "idle";
         string status;
         if (roi is null)
         {
@@ -390,7 +599,7 @@ public partial class App : Application
                 ? _nativeOverlay.DiagnosticStatus
                 : _capStatus;
             status =
-                $"{roi.Value.Width}x{roi.Value.Height} ({backend}/{follow}) show={show} {cap}";
+                $"{roi.Value.Width}x{roi.Value.Height} ({backend}/{follow}) show={show} {cap} {race}";
         }
 
         _tray.Text = $"CPURacer — {status}";
@@ -413,6 +622,11 @@ public partial class App : Application
 
         if (_watcher.IsTracking)
         {
+            _raceWanted = false;
+            _race.Stop();
+            _overlay.SetCarPose(null);
+            _nativeOverlay.SetCarPose(null);
+            StopRaceHostLoop();
             StopExternalLoop();
             _captureTimer.Stop();
             _watcher.Stop();
@@ -423,6 +637,7 @@ public partial class App : Application
             _overlay.SetHeightField(null);
             _overlay.ClearRoi();
             _nativeOverlay.ClearRoi();
+            SyncRaceMenu();
             UpdateTrayTip(null);
             return;
         }
@@ -480,22 +695,32 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _raceWanted = false;
+        _race.Stop();
+        StopRaceHostLoop();
         StopExternalLoop();
         _captureTimer?.Stop();
         _captureTimer = null;
         _externalTimer = null;
+        _raceTimer = null;
+        GameInput.Uninstall();
 
         _watcher?.Dispose();
         _watcher = null;
 
         if (_overlay is not null)
         {
+            _overlay.HeightFieldUpdated -= OnHeightFieldUpdated;
             _overlay.Close();
             _overlay = null;
         }
 
-        _nativeOverlay?.Dispose();
-        _nativeOverlay = null;
+        if (_nativeOverlay is not null)
+        {
+            _nativeOverlay.HeightFieldUpdated -= OnHeightFieldUpdated;
+            _nativeOverlay.Dispose();
+            _nativeOverlay = null;
+        }
 
         if (_tray is not null)
         {

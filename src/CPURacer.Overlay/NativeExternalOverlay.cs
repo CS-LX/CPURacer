@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
 using CPURacer.Capture;
+using CPURacer.Game;
 using CPURacer.Native;
 using CPURacer.Taskmgr;
 using SharpGen.Runtime;
@@ -39,6 +40,7 @@ public sealed class NativeExternalOverlay : IDisposable
     private IntPtr _hwnd;
     private ChartRoi? _roi;
     private HeightField? _heightField;
+    private CarState? _carPose;
     private int _captureFailStreak;
     private bool _visible;
     private bool _disposed;
@@ -49,6 +51,12 @@ public sealed class NativeExternalOverlay : IDisposable
     private ID2D1HwndRenderTarget? _renderTarget;
     private ID2D1SolidColorBrush? _orangeBrush;
     private ID2D1SolidColorBrush? _redBrush;
+    private ID2D1SolidColorBrush? _carBrush;
+    private ID2D1SolidColorBrush? _carFlippedBrush;
+    private ID2D1SolidColorBrush? _carDeadBrush;
+    private ID2D1SolidColorBrush? _cabinBrush;
+    private ID2D1SolidColorBrush? _wheelBrush;
+    private ID2D1SolidColorBrush? _strokeBrush;
     private IDWriteFactory? _writeFactory;
     private IDWriteTextFormat? _textFormat;
 
@@ -77,6 +85,12 @@ public sealed class NativeExternalOverlay : IDisposable
     public string DiagnosticStatus =>
         $"{CaptureStatus} {WindowStatus} {(DisplayAffinityApplied ? "wda=ok" : $"wda=fail({DisplayAffinityError})")}";
 
+    /// <summary>Latest reliable terrain for RaceHost (read-only; Overlay never owns RaceSim).</summary>
+    public HeightField? CurrentHeightField => _heightField;
+
+    /// <summary>Raised when a new height field is extracted (M3 thin egress).</summary>
+    public event Action<HeightField>? HeightFieldUpdated;
+
     public void ApplyRoi(ChartRoi? roi)
     {
         ThrowIfDisposed();
@@ -84,10 +98,18 @@ public sealed class NativeExternalOverlay : IDisposable
         if (roi is null)
         {
             _heightField = null;
+            _carPose = null;
             _captureFailStreak = 0;
             CaptureStatus = "cap=sleep";
             Hide();
         }
+    }
+
+    /// <summary>Draw-only car pose. Does not affect placement, Z-order, or capture.</summary>
+    public void SetCarPose(CarState? pose)
+    {
+        ThrowIfDisposed();
+        _carPose = pose;
     }
 
     public void ClearRoi() => ApplyRoi(null);
@@ -176,6 +198,7 @@ public sealed class NativeExternalOverlay : IDisposable
                 {
                     _heightField = field;
                     CaptureStatus = $"cap=ok cols={field.PlotWidth}";
+                    HeightFieldUpdated?.Invoke(field);
                 }
             }
         }
@@ -308,6 +331,12 @@ public sealed class NativeExternalOverlay : IDisposable
         _renderTarget = _d2dFactory!.CreateHwndRenderTarget(properties, hwndProperties);
         _orangeBrush = _renderTarget.CreateSolidColorBrush(new Color4(1f, 0.55f, 0f, 0.9f));
         _redBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.86f, 0.24f, 0.24f, 0.9f));
+        _carBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.16f, 0.78f, 0.35f, 0.86f));
+        _carFlippedBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.86f, 0.55f, 0.16f, 0.82f));
+        _carDeadBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.71f, 0.16f, 0.16f, 0.78f));
+        _cabinBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.94f, 0.94f, 0.94f, 0.78f));
+        _wheelBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.12f, 0.12f, 0.12f, 0.9f));
+        _strokeBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.08f, 0.08f, 0.08f, 0.94f));
     }
 
     private void RenderFrame()
@@ -336,7 +365,12 @@ public sealed class NativeExternalOverlay : IDisposable
             }
         }
 
-        if (ShowDebugChrome)
+        if (_carPose is { } car)
+        {
+            DrawCar(target, car);
+        }
+
+        if (ShowDebugChrome || _carPose is not null)
         {
             target.DrawRectangle(
                 new Rect(1, 1, Math.Max(1, _pixelWidth - 2), Math.Max(1, _pixelHeight - 2)),
@@ -346,10 +380,14 @@ public sealed class NativeExternalOverlay : IDisposable
             var affinity = DisplayAffinityApplied
                 ? "wda=ok"
                 : $"wda=fail({DisplayAffinityError})";
+            var hud = _carPose is { } pose ? pose.Hud : null;
+            var status = string.IsNullOrEmpty(hud)
+                ? $"CPURacer [native] {_pixelWidth}x{_pixelHeight} {CaptureStatus} {WindowStatus} {affinity}"
+                : $"CPURacer [native] {CaptureStatus} | {hud}";
             target.DrawText(
-                $"CPURacer [native] {_pixelWidth}x{_pixelHeight} {CaptureStatus} {WindowStatus} {affinity}",
+                status,
                 _textFormat!,
-                new Rect(10, 8, Math.Max(20, _pixelWidth - 10), 30),
+                new Rect(10, 8, Math.Max(20, _pixelWidth - 10), 40),
                 _redBrush!);
         }
 
@@ -361,6 +399,63 @@ public sealed class NativeExternalOverlay : IDisposable
         {
             DisposeRenderTarget();
         }
+    }
+
+    private void DrawCar(ID2D1HwndRenderTarget target, CarState car)
+    {
+        var frameW = _heightField?.FrameWidth ?? _roi?.Width ?? _pixelWidth;
+        var frameH = _heightField?.FrameHeight ?? _roi?.Height ?? _pixelHeight;
+        if (frameW < 8 || frameH < 8)
+        {
+            return;
+        }
+
+        var sx = _pixelWidth / (float)frameW;
+        var sy = _pixelHeight / (float)frameH;
+        var cx = car.ChassisX * sx;
+        var cy = car.ChassisYFromTop * sy;
+        var hw = car.HalfWidth * sx;
+        var hh = car.HalfHeight * sy;
+        var wr = car.WheelRadius * Math.Min(sx, sy);
+        var body = car.IsDead
+            ? _carDeadBrush!
+            : car.ControlsDisabled
+                ? _carFlippedBrush!
+                : _carBrush!;
+
+        // Box2D +angle is CCW in Y-up; D2D +angle is CW in Y-down → negate.
+        var angle = -car.AngleRad;
+        target.Transform = Matrix3x2.CreateRotation(angle, new Vector2(cx, cy));
+        target.FillRectangle(new Rect(cx - hw, cy - hh, hw * 2, hh * 2), body);
+        target.DrawRectangle(new Rect(cx - hw, cy - hh, hw * 2, hh * 2), _strokeBrush!, 1.5f);
+        target.FillRectangle(
+            new Rect(cx - hw * 0.35f, cy - hh * 1.6f, hw * 0.9f, hh * 0.7f),
+            _cabinBrush!);
+        target.DrawRectangle(
+            new Rect(cx - hw * 0.35f, cy - hh * 1.6f, hw * 0.9f, hh * 0.7f),
+            _strokeBrush!,
+            1.5f);
+        target.Transform = Matrix3x2.Identity;
+
+        DrawWheel(target, cx, cy, -hw * 0.78f, hh * 0.35f, angle, wr);
+        DrawWheel(target, cx, cy, hw * 0.78f, hh * 0.35f, angle, wr);
+    }
+
+    private void DrawWheel(
+        ID2D1HwndRenderTarget target,
+        float cx,
+        float cy,
+        float localX,
+        float localY,
+        float angleRad,
+        float radius)
+    {
+        var cos = MathF.Cos(angleRad);
+        var sin = MathF.Sin(angleRad);
+        var x = cx + localX * cos - localY * sin;
+        var y = cy + localX * sin + localY * cos;
+        target.FillEllipse(new Ellipse(new Vector2(x, y), radius, radius), _wheelBrush!);
+        target.DrawEllipse(new Ellipse(new Vector2(x, y), radius, radius), _strokeBrush!, 1.5f);
     }
 
     private void Hide()
@@ -428,9 +523,21 @@ public sealed class NativeExternalOverlay : IDisposable
     {
         _orangeBrush?.Dispose();
         _redBrush?.Dispose();
+        _carBrush?.Dispose();
+        _carFlippedBrush?.Dispose();
+        _carDeadBrush?.Dispose();
+        _cabinBrush?.Dispose();
+        _wheelBrush?.Dispose();
+        _strokeBrush?.Dispose();
         _renderTarget?.Dispose();
         _orangeBrush = null;
         _redBrush = null;
+        _carBrush = null;
+        _carFlippedBrush = null;
+        _carDeadBrush = null;
+        _cabinBrush = null;
+        _wheelBrush = null;
+        _strokeBrush = null;
         _renderTarget = null;
     }
 

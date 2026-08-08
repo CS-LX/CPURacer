@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using CPURacer.Capture;
+using CPURacer.Game;
 using CPURacer.Native;
 using CPURacer.Taskmgr;
 
@@ -28,8 +29,15 @@ public sealed class OverlayWindow : Window
     private int _lastChildW = -1;
     private int _lastChildH = -1;
     private HeightField? _heightField;
+    private CarState? _carPose;
     private string _captureStatus = "";
     private readonly DrawingGroup _backingStore = new();
+
+    /// <summary>Latest reliable terrain for RaceHost (read-only).</summary>
+    public HeightField? CurrentHeightField => _heightField;
+
+    /// <summary>Raised when a new height field is set (M3 thin egress).</summary>
+    public event Action<HeightField>? HeightFieldUpdated;
 
     public OverlayWindow()
     {
@@ -134,6 +142,7 @@ public sealed class OverlayWindow : Window
         {
             _statusText = "CPURacer — no CPU chart";
             _heightField = null;
+            _carPose = null;
             DetachFromChart();
             HideOverlaySurface();
             RebuildBackingStore();
@@ -158,12 +167,23 @@ public sealed class OverlayWindow : Window
         _captureStatus = captureStatus;
         RefreshStatusText();
         RebuildBackingStore();
+        if (field is not null)
+        {
+            HeightFieldUpdated?.Invoke(field);
+        }
     }
 
     public void SetCaptureStatus(string captureStatus)
     {
         _captureStatus = captureStatus;
         RefreshStatusText();
+        RebuildBackingStore();
+    }
+
+    /// <summary>Draw-only car pose. Does not affect placement or capture.</summary>
+    public void SetCarPose(CarState? pose)
+    {
+        _carPose = pose;
         RebuildBackingStore();
     }
 
@@ -222,7 +242,12 @@ public sealed class OverlayWindow : Window
                     DrawFitPolyline(dc, field, drawW, drawH);
                 }
 
-                if (ShowDebugChrome)
+                if (_carPose is { } car)
+                {
+                    DrawCar(dc, car, drawW, drawH);
+                }
+
+                if (ShowDebugChrome || _carPose is not null)
                 {
                     var pen = new Pen(new SolidColorBrush(Color.FromArgb(200, 220, 60, 60)), 2);
                     dc.DrawRectangle(
@@ -230,8 +255,12 @@ public sealed class OverlayWindow : Window
                         pen,
                         new Rect(1, 1, drawW - 2, drawH - 2));
 
+                    var hud = _carPose is { } pose ? pose.Hud : null;
+                    var status = string.IsNullOrEmpty(hud)
+                        ? _statusText
+                        : $"{_statusText}  |  {hud}";
                     var text = new FormattedText(
-                        _statusText,
+                        status,
                         System.Globalization.CultureInfo.CurrentUICulture,
                         FlowDirection.LeftToRight,
                         new Typeface("Segoe UI"),
@@ -281,6 +310,66 @@ public sealed class OverlayWindow : Window
         var pen = new Pen(new SolidColorBrush(Color.FromArgb(230, 255, 140, 0)), 2.0);
         pen.Freeze();
         dc.DrawGeometry(null, pen, geo);
+    }
+
+    private void DrawCar(DrawingContext dc, CarState car, double drawW, double drawH)
+    {
+        var frameW = _heightField?.FrameWidth ?? _roi?.Width ?? (int)drawW;
+        var frameH = _heightField?.FrameHeight ?? _roi?.Height ?? (int)drawH;
+        if (frameW < 8 || frameH < 8)
+        {
+            return;
+        }
+
+        var sx = drawW / frameW;
+        var sy = drawH / frameH;
+        var cx = car.ChassisX * sx;
+        var cy = car.ChassisYFromTop * sy;
+        var hw = car.HalfWidth * sx;
+        var hh = car.HalfHeight * sy;
+        var wr = car.WheelRadius * Math.Min(sx, sy);
+
+        var fill = car.IsDead
+            ? new SolidColorBrush(Color.FromArgb(200, 180, 40, 40))
+            : car.ControlsDisabled
+                ? new SolidColorBrush(Color.FromArgb(210, 220, 140, 40))
+                : new SolidColorBrush(Color.FromArgb(220, 40, 200, 90));
+        var stroke = new Pen(new SolidColorBrush(Color.FromArgb(240, 20, 20, 20)), 1.5);
+        fill.Freeze();
+        stroke.Freeze();
+
+        var deg = -car.AngleRad * 180.0 / Math.PI;
+        dc.PushTransform(new RotateTransform(deg, cx, cy));
+        dc.DrawRectangle(fill, stroke, new Rect(cx - hw, cy - hh, hw * 2, hh * 2));
+        dc.DrawRectangle(
+            new SolidColorBrush(Color.FromArgb(200, 240, 240, 240)),
+            stroke,
+            new Rect(cx - hw * 0.35, cy - hh * 1.6, hw * 0.9, hh * 0.7));
+        dc.Pop();
+
+        var wheelBrush = new SolidColorBrush(Color.FromArgb(230, 30, 30, 30));
+        wheelBrush.Freeze();
+        var screenAngle = -car.AngleRad;
+        DrawWheel(dc, cx, cy, -hw * 0.78, hh * 0.35, screenAngle, wr, wheelBrush, stroke);
+        DrawWheel(dc, cx, cy, hw * 0.78, hh * 0.35, screenAngle, wr, wheelBrush, stroke);
+    }
+
+    private static void DrawWheel(
+        DrawingContext dc,
+        double cx,
+        double cy,
+        double localX,
+        double localY,
+        float angleRad,
+        double radius,
+        Brush fill,
+        Pen stroke)
+    {
+        var cos = Math.Cos(angleRad);
+        var sin = Math.Sin(angleRad);
+        var x = cx + localX * cos - localY * sin;
+        var y = cy + localX * sin + localY * cos;
+        dc.DrawEllipse(fill, stroke, new Point(x, y), radius, radius);
     }
 
     private void RefreshStatusText()
