@@ -3,6 +3,7 @@ using Box2DX.Collision;
 using Box2DX.Common;
 using Box2DX.Dynamics;
 using CPURacer.Capture;
+using CPURacer.Localization;
 using CPURacer.Native;
 
 namespace CPURacer.Game;
@@ -284,11 +285,12 @@ public sealed class RaceSim
         var chassisXPx = _insetLeft + (worldXPx - _scrollOriginPx) + 0.5f;
         var worldYPx = p.Y * PixelsPerMeter;
         var yFromTop = CoordMapper.WorldYToFrameYFromTop(worldYPx, _insetTop, _plotHPx);
+        // Idle/game-over copy is owned by App + Localization (centered Figgle prompts).
         var hud = _dead
-            ? $"Game Over · {_deathReason} · {_runDistanceM:0.0}m (best {_sessionBestM:0.0}m) — Space"
+            ? string.Empty
             : _controlsDisabled
-                ? $"Flipped · {_runDistanceM:0.0}m — Space"
-                : $"{_runDistanceM:0.0}m  best {_sessionBestM:0.0}m";
+                ? string.Format(Locale.Culture, Strings.HudFlipped, _runDistanceM)
+                : string.Format(Locale.Culture, Strings.HudRacing, _runDistanceM, _sessionBestM);
 
         // TaskmgrPlayer ColorEdge RGB(12,125,187) as BGRA accent defaults.
         var ab = _terrain?.AccentB ?? (byte)187;

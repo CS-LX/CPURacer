@@ -1,0 +1,33 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>CPURacer.Localization</RootNamespace>
+    <AssemblyName>CPURacer.Localization</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Figgle" Version="0.6.5" />
+    <PackageReference Include="Figgle.Fonts" Version="0.6.5" />
+  </ItemGroup>
+
+  <!-- Hand-written Strings.cs; keep resx as embedded resources only. -->
+  <ItemGroup>
+    <EmbeddedResource Update="Strings.resx">
+      <Generator />
+      <LastGenOutput />
+      <StronglyTypedFileName />
+      <StronglyTypedLanguage />
+      <StronglyTypedNamespace />
+      <StronglyTypedClassName />
+      <PublicClass>false</PublicClass>
+    </EmbeddedResource>
+    <EmbeddedResource Update="Strings.zh-Hans.resx">
+      <DependentUpon>Strings.resx</DependentUpon>
+      <Generator />
+    </EmbeddedResource>
+  </ItemGroup>
+
+</Project>

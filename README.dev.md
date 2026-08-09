@@ -44,9 +44,12 @@ src/
   CPURacer.Game/         RaceSim 物理
   CPURacer.Overlay/      WPF Child + 原生 External Overlay
   CPURacer.Native/       P/Invoke
+  CPURacer.Localization/ en / zh-Hans 资源 + Figgle 开局/结束提示
 ```
 
 图标：`src/CPURacer.App/CPURacer.ico`（源图 `assets/cpuracer-icon.png`）。
+
+**本地化 / Figgle：** `Strings*.resx` 提供托盘与 MessageBox；`<figgle>SPACE</figgle>` 由 `FigglePrompt` 运行时展开为 ASCII，画在 Overlay 正中。默认跟随系统 UI（`zh*` → 中文，否则英文）；托盘「高级 → 语言」可切换（进程内，不落盘）。
 
 ## 里程碑状态（摘要）
 
@@ -56,6 +59,7 @@ src/
 | M2 / M2.5 / M2.6.2 拟合与 External Overlay | ✅ |
 | M3 物理赛车 | ✅ |
 | M4 玩家壳 | ✅（PDH / 单文件发布等延后） |
+| Figgle 开局/结束 + en/zh-Hans | ✅（2026-08-09） |
 
 ## 文档与参考
 
@@ -70,3 +74,11 @@ src/
 - **Tab** 或托盘「高级」：调试描边 / 拟合线  
 - 工程状态串在「高级 → 状态」  
 - 托盘往返后 Overlay 不得被 Taskmgr 盖住（M2.6.2 门禁）
+
+## Figgle 提示手工验收（短）
+
+1. 系统中文或托盘切「中文」：中央「按下 + ASCII SPACE + 开始游戏」；托盘中文  
+2. English：`press / SPACE / to play`；托盘英文  
+3. Space 开赛后中央提示消失；出界后中央 Figgle `GAME OVER` + 再试提示  
+
+4. External Overlay 仍点击穿透；托盘焦点往返门禁不破
