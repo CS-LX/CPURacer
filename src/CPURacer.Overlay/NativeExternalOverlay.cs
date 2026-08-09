@@ -118,8 +118,11 @@ public sealed class NativeExternalOverlay : IDisposable
         _carPose = pose;
     }
 
-    /// <summary>Player banner when not racing (idle tip). Cleared by caller when racing.</summary>
+    /// <summary>Top-left player line (racing HUD). Idle/game-over use <see cref="CenterPrompt"/>.</summary>
     public string? PlayerBanner { get; set; }
+
+    /// <summary>Pre-expanded multiline prompt drawn centered (Figgle already expanded by App).</summary>
+    public string? CenterPrompt { get; set; }
 
     public void ClearRoi() => ApplyRoi(null);
 
@@ -416,17 +419,29 @@ public sealed class NativeExternalOverlay : IDisposable
                 new Rect(10, 8, Math.Max(20, _pixelWidth - 10), 48),
                 _redBrush!);
         }
-        else
+        else if (_carPose is { IsRunning: true, IsDead: false } running)
         {
-            var line = _carPose is { } pose ? pose.Hud : PlayerBanner;
-            if (!string.IsNullOrEmpty(line))
+            if (!string.IsNullOrEmpty(running.Hud))
             {
                 target.DrawText(
-                    line,
+                    running.Hud,
                     _textFormat!,
                     new Rect(10, 8, Math.Max(20, _pixelWidth - 10), 48),
                     _hudBrush!);
             }
+        }
+        else if (!string.IsNullOrEmpty(PlayerBanner))
+        {
+            target.DrawText(
+                PlayerBanner,
+                _textFormat!,
+                new Rect(10, 8, Math.Max(20, _pixelWidth - 10), 48),
+                _hudBrush!);
+        }
+
+        if (!ShowDebugChrome && !string.IsNullOrEmpty(CenterPrompt))
+        {
+            DrawCenteredPrompt(target, CenterPrompt!);
         }
 
         try
@@ -544,6 +559,44 @@ public sealed class NativeExternalOverlay : IDisposable
         var y = cy + localX * sin + localY * cos;
         target.FillEllipse(new Ellipse(new Vector2(x, y), radius, radius), fill);
         target.DrawEllipse(new Ellipse(new Vector2(x, y), radius, radius), outline, strokeW);
+    }
+
+    private void DrawCenteredPrompt(ID2D1HwndRenderTarget target, string prompt)
+    {
+        if (_writeFactory is null || _hudBrush is null)
+        {
+            return;
+        }
+
+        var normalized = prompt.Replace("\r\n", "\n", StringComparison.Ordinal);
+        var lineCount = 1;
+        for (var i = 0; i < normalized.Length; i++)
+        {
+            if (normalized[i] == '\n')
+            {
+                lineCount++;
+            }
+        }
+
+        var fontSize = System.Math.Clamp(_pixelHeight / (lineCount * 1.25f), 8f, 20f);
+        using var format = _writeFactory.CreateTextFormat(
+            "Consolas",
+            null,
+            FontWeight.Normal,
+            FontStyle.Normal,
+            FontStretch.Normal,
+            fontSize,
+            "en-US");
+        format.TextAlignment = TextAlignment.Leading;
+        format.ParagraphAlignment = ParagraphAlignment.Near;
+
+        var maxW = _pixelWidth * 0.94f;
+        var maxH = _pixelHeight * 0.92f;
+        using var layout = _writeFactory.CreateTextLayout(normalized, format, maxW, maxH);
+        var metrics = layout.Metrics;
+        var x = (_pixelWidth - metrics.Width) * 0.5f;
+        var y = (_pixelHeight - metrics.Height) * 0.5f;
+        target.DrawTextLayout(new Vector2(x, y), layout, _hudBrush);
     }
 
     /// <summary>Vertical center-zero throttle: up forward / down reverse.</summary>

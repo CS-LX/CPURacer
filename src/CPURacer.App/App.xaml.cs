@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Threading;
 using CPURacer.Capture;
 using CPURacer.Game;
+using CPURacer.Localization;
 using CPURacer.Overlay;
 using CPURacer.Taskmgr;
 using Application = System.Windows.Application;
@@ -24,6 +25,12 @@ public partial class App : Application
     private Forms.ToolStripMenuItem? _restartItem;
     private Forms.ToolStripMenuItem? _debugItem;
     private Forms.ToolStripMenuItem? _fitItem;
+    private Forms.ToolStripMenuItem? _advancedItem;
+    private Forms.ToolStripMenuItem? _exitItem;
+    private Forms.ToolStripMenuItem? _followMenuItem;
+    private Forms.ToolStripMenuItem? _langMenuItem;
+    private Forms.ToolStripMenuItem? _langEnItem;
+    private Forms.ToolStripMenuItem? _langZhItem;
     private OverlayWindow? _overlay;
     private NativeExternalOverlay? _nativeOverlay;
     private TaskmgrWatcher? _watcher;
@@ -51,6 +58,8 @@ public partial class App : Application
     {
         Forms.Application.SetHighDpiMode(Forms.HighDpiMode.PerMonitorV2);
         base.OnStartup(e);
+        Locale.ApplyFromOs();
+        Locale.Changed += OnLocaleChanged;
         GameInput.Install();
 
         _overlay = new OverlayWindow
@@ -131,44 +140,44 @@ public partial class App : Application
         var trayIcon = LoadAppIcon() ?? SystemIcons.Application;
         _tray = new Forms.NotifyIcon
         {
-            Text = "CPURacer — 打开任务管理器 CPU 图",
+            Text = Strings.TipOpenCpu,
             Visible = true,
             Icon = trayIcon,
         };
 
         var menu = new Forms.ContextMenuStrip();
 
-        _raceItem = new Forms.ToolStripMenuItem("开始");
+        _raceItem = new Forms.ToolStripMenuItem();
         _raceItem.Click += (_, _) => ToggleRace();
         menu.Items.Add(_raceItem);
 
-        _restartItem = new Forms.ToolStripMenuItem("重开（Space）") { Enabled = false };
+        _restartItem = new Forms.ToolStripMenuItem { Enabled = false };
         _restartItem.Click += (_, _) => RestartRace();
         menu.Items.Add(_restartItem);
 
         menu.Items.Add(new Forms.ToolStripSeparator());
 
-        var advanced = new Forms.ToolStripMenuItem("高级");
+        _advancedItem = new Forms.ToolStripMenuItem();
 
-        _trackItem = new Forms.ToolStripMenuItem("暂停监视 Taskmgr");
+        _trackItem = new Forms.ToolStripMenuItem();
         _trackItem.Click += (_, _) => ToggleTracking();
-        advanced.DropDownItems.Add(_trackItem);
+        _advancedItem.DropDownItems.Add(_trackItem);
 
-        var followMenu = new Forms.ToolStripMenuItem("跟随方式");
-        _followExternalItem = new Forms.ToolStripMenuItem("外部 Overlay（WinEvent）") { CheckOnClick = true };
-        _followChildItem = new Forms.ToolStripMenuItem("子窗 SetParent（TaskmgrPlayer 式）") { CheckOnClick = true };
+        _followMenuItem = new Forms.ToolStripMenuItem();
+        _followExternalItem = new Forms.ToolStripMenuItem { CheckOnClick = true };
+        _followChildItem = new Forms.ToolStripMenuItem { CheckOnClick = true };
         _followExternalItem.Click += (_, _) => SetFollowMode(TrackFollowMode.External);
         _followChildItem.Click += (_, _) => SetFollowMode(TrackFollowMode.Child);
-        followMenu.DropDownItems.Add(_followExternalItem);
-        followMenu.DropDownItems.Add(_followChildItem);
-        advanced.DropDownItems.Add(followMenu);
+        _followMenuItem.DropDownItems.Add(_followExternalItem);
+        _followMenuItem.DropDownItems.Add(_followChildItem);
+        _advancedItem.DropDownItems.Add(_followMenuItem);
         SyncFollowMenu();
 
-        _overlayItem = new Forms.ToolStripMenuItem("手动显示 Overlay");
+        _overlayItem = new Forms.ToolStripMenuItem();
         _overlayItem.Click += (_, _) => ToggleOverlayManual();
-        advanced.DropDownItems.Add(_overlayItem);
+        _advancedItem.DropDownItems.Add(_overlayItem);
 
-        _debugItem = new Forms.ToolStripMenuItem("调试描边（Tab）") { Checked = _debugOverlay, CheckOnClick = true };
+        _debugItem = new Forms.ToolStripMenuItem { Checked = _debugOverlay, CheckOnClick = true };
         _debugItem.CheckedChanged += (_, _) =>
         {
             if (_debugItem is null)
@@ -178,9 +187,9 @@ public partial class App : Application
 
             SetDebugChrome(_debugItem.Checked, syncMenu: false);
         };
-        advanced.DropDownItems.Add(_debugItem);
+        _advancedItem.DropDownItems.Add(_debugItem);
 
-        _fitItem = new Forms.ToolStripMenuItem("调试拟合线") { Checked = _showFitPolyline, CheckOnClick = true };
+        _fitItem = new Forms.ToolStripMenuItem { Checked = _showFitPolyline, CheckOnClick = true };
         _fitItem.CheckedChanged += (_, _) =>
         {
             if (_fitItem is null)
@@ -199,19 +208,171 @@ public partial class App : Application
                 _nativeOverlay.ShowFitPolyline = _showFitPolyline;
             }
         };
-        advanced.DropDownItems.Add(_fitItem);
+        _advancedItem.DropDownItems.Add(_fitItem);
 
-        _statusItem = new Forms.ToolStripMenuItem("状态: …") { Enabled = false };
-        advanced.DropDownItems.Add(_statusItem);
-        menu.Items.Add(advanced);
+        _langMenuItem = new Forms.ToolStripMenuItem();
+        _langEnItem = new Forms.ToolStripMenuItem { CheckOnClick = true };
+        _langZhItem = new Forms.ToolStripMenuItem { CheckOnClick = true };
+        _langEnItem.Click += (_, _) => Locale.SetEnglish();
+        _langZhItem.Click += (_, _) => Locale.SetChinese();
+        _langMenuItem.DropDownItems.Add(_langEnItem);
+        _langMenuItem.DropDownItems.Add(_langZhItem);
+        _advancedItem.DropDownItems.Add(_langMenuItem);
+
+        _statusItem = new Forms.ToolStripMenuItem { Enabled = false };
+        _advancedItem.DropDownItems.Add(_statusItem);
+        menu.Items.Add(_advancedItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
 
-        var exitItem = new Forms.ToolStripMenuItem("退出");
-        exitItem.Click += (_, _) => Shutdown();
-        menu.Items.Add(exitItem);
+        _exitItem = new Forms.ToolStripMenuItem();
+        _exitItem.Click += (_, _) => Shutdown();
+        menu.Items.Add(_exitItem);
 
         _tray.ContextMenuStrip = menu;
         _tray.DoubleClick += (_, _) => ToggleRace();
+        ApplyTrayStrings();
+    }
+
+    private void OnLocaleChanged()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(OnLocaleChanged);
+            return;
+        }
+
+        ApplyTrayStrings();
+        RefreshStagePrompts();
+        UpdateTrayTip(_watcher?.CurrentRoi);
+    }
+
+    private void ApplyTrayStrings()
+    {
+        if (_raceItem is not null)
+        {
+            var active = _raceWanted || _race.IsRunning;
+            _raceItem.Text = active ? Strings.TrayStop : Strings.TrayStart;
+        }
+
+        if (_restartItem is not null)
+        {
+            _restartItem.Text = Strings.TrayRestart;
+        }
+
+        if (_advancedItem is not null)
+        {
+            _advancedItem.Text = Strings.TrayAdvanced;
+        }
+
+        if (_trackItem is not null)
+        {
+            _trackItem.Text = _watcher?.IsTracking == true
+                ? Strings.TrayPauseWatch
+                : Strings.TrayResumeWatch;
+        }
+
+        if (_followMenuItem is not null)
+        {
+            _followMenuItem.Text = Strings.TrayFollowMode;
+        }
+
+        if (_followExternalItem is not null)
+        {
+            _followExternalItem.Text = Strings.TrayFollowExternal;
+        }
+
+        if (_followChildItem is not null)
+        {
+            _followChildItem.Text = Strings.TrayFollowChild;
+        }
+
+        if (_overlayItem is not null)
+        {
+            _overlayItem.Text = _overlay?.ForceVisible == true
+                ? Strings.TrayManualOverlayCancel
+                : Strings.TrayManualOverlay;
+        }
+
+        if (_debugItem is not null)
+        {
+            _debugItem.Text = Strings.TrayDebugChrome;
+        }
+
+        if (_fitItem is not null)
+        {
+            _fitItem.Text = Strings.TrayDebugFit;
+        }
+
+        if (_langMenuItem is not null)
+        {
+            _langMenuItem.Text = Strings.TrayLanguage;
+        }
+
+        if (_langEnItem is not null)
+        {
+            _langEnItem.Text = Strings.TrayLanguageEn;
+            _langEnItem.Checked = !Locale.IsChinese;
+        }
+
+        if (_langZhItem is not null)
+        {
+            _langZhItem.Text = Strings.TrayLanguageZh;
+            _langZhItem.Checked = Locale.IsChinese;
+        }
+
+        if (_exitItem is not null)
+        {
+            _exitItem.Text = Strings.TrayExit;
+        }
+
+        SyncRaceMenu();
+    }
+
+    private void SetCenterPrompt(string? expanded)
+    {
+        if (_nativeOverlay is not null)
+        {
+            _nativeOverlay.CenterPrompt = expanded;
+        }
+
+        if (_overlay is not null)
+        {
+            _overlay.CenterPrompt = expanded;
+        }
+    }
+
+    private void ClearPlayerBanners()
+    {
+        if (_nativeOverlay is not null)
+        {
+            _nativeOverlay.PlayerBanner = null;
+        }
+
+        if (_overlay is not null)
+        {
+            _overlay.PlayerBanner = null;
+        }
+    }
+
+    private void RefreshStagePrompts()
+    {
+        if (_race.IsDead)
+        {
+            SetCenterPrompt(FigglePrompt.FormatExpand(
+                Strings.PromptGameOver,
+                _race.DistanceMeters,
+                _race.BestDistanceMeters));
+            ClearPlayerBanners();
+            return;
+        }
+
+        if (_raceWanted || _race.IsRunning)
+        {
+            SetCenterPrompt(null);
+            return;
+        }
+
+        UpdateIdleBanners();
     }
 
     /// <summary>Child-only capture path (External uses TickExternalFrame).</summary>
@@ -345,6 +506,36 @@ public partial class App : Application
             return;
         }
 
+        if (_race.IsDead && !_race.IsRunning)
+        {
+            SetCenterPrompt(FigglePrompt.FormatExpand(
+                Strings.PromptGameOver,
+                _race.DistanceMeters,
+                _race.BestDistanceMeters));
+            ClearPlayerBanners();
+            var deadSpace = GameInput.RestartPressed;
+            if (deadSpace && !_spaceWasDown)
+            {
+                RestartRace();
+            }
+
+            _spaceWasDown = deadSpace;
+
+            var deadCar = _race.GetCarState();
+            if (_followMode == TrackFollowMode.External)
+            {
+                _nativeOverlay?.SetCarPose(deadCar);
+            }
+            else
+            {
+                _overlay?.SetCarPose(deadCar);
+            }
+
+            return;
+        }
+
+        SetCenterPrompt(null);
+
         var now = TimeSpan.FromTicks(DateTime.UtcNow.Ticks);
         if (_lastRaceTime == TimeSpan.Zero)
         {
@@ -444,44 +635,33 @@ public partial class App : Application
         if (_capStatus.StartsWith("cap=fail", StringComparison.Ordinal)
             || _capStatus.StartsWith("cap=ext-fail", StringComparison.Ordinal))
         {
-            tip = "看不到 CPU 图 — 打开任务管理器 → 性能 → CPU";
+            tip = Strings.PromptCaptureFail;
         }
         else if (roi is null || field is null)
         {
-            tip = "打开任务管理器 → 性能 → CPU";
+            tip = Strings.PromptWaitingChart;
         }
         else
         {
-            // lunar-lander: short idle; Space (External is click-through).
-            tip = "Paused — Space 开始";
+            tip = Strings.PromptIdle;
         }
 
+        ClearPlayerBanners();
+        SetCenterPrompt(FigglePrompt.Expand(tip));
         if (_followMode == TrackFollowMode.External)
         {
-            if (_nativeOverlay is not null)
-            {
-                _nativeOverlay.PlayerBanner = tip;
-                _nativeOverlay.SetCarPose(null);
-            }
+            _nativeOverlay?.SetCarPose(null);
         }
-        else if (_overlay is not null)
+        else
         {
-            _overlay.PlayerBanner = tip;
-            _overlay.SetCarPose(null);
+            _overlay?.SetCarPose(null);
         }
     }
 
     private void ClearBanners()
     {
-        if (_nativeOverlay is not null)
-        {
-            _nativeOverlay.PlayerBanner = null;
-        }
-
-        if (_overlay is not null)
-        {
-            _overlay.PlayerBanner = null;
-        }
+        ClearPlayerBanners();
+        SetCenterPrompt(null);
     }
 
     private void SyncPipelineClocks()
@@ -566,7 +746,7 @@ public partial class App : Application
         if (_watcher?.IsTracking != true)
         {
             Forms.MessageBox.Show(
-                "监视已暂停。\n托盘 → 高级 → 恢复监视 Taskmgr。",
+                Strings.MsgWatchPaused,
                 "CPURacer",
                 Forms.MessageBoxButtons.OK,
                 Forms.MessageBoxIcon.Information);
@@ -579,7 +759,7 @@ public partial class App : Application
         if (field is null)
         {
             Forms.MessageBox.Show(
-                "请打开任务管理器 → 性能 → CPU。\n图就绪后按 Space，或再点「开始」。",
+                Strings.MsgNeedCpuChart,
                 "CPURacer",
                 Forms.MessageBoxButtons.OK,
                 Forms.MessageBoxIcon.Information);
@@ -626,6 +806,7 @@ public partial class App : Application
             _race.Start();
         }
 
+        SetCenterPrompt(null);
         SyncRaceHostLoop();
         SyncRaceMenu();
         UpdateTrayTip(_watcher?.CurrentRoi);
@@ -640,10 +821,7 @@ public partial class App : Application
 
         _adminTipShown = true;
         Forms.MessageBox.Show(
-            "当前不是管理员运行。\n\n" +
-            "若任务管理器是管理员启动的，本程序的 W/S 可能无响应（UIPI）。\n" +
-            "建议：退出后对本程序「以管理员身份运行」。\n\n" +
-            "若 Taskmgr 也是普通权限，可忽略本提示。",
+            Strings.MsgAdminUipi,
             "CPURacer",
             Forms.MessageBoxButtons.OK,
             Forms.MessageBoxIcon.Information);
@@ -676,12 +854,13 @@ public partial class App : Application
         if (_raceItem is not null)
         {
             var active = _raceWanted || _race.IsRunning;
-            _raceItem.Text = active ? "停止" : "开始";
+            _raceItem.Text = active ? Strings.TrayStop : Strings.TrayStart;
         }
 
         if (_restartItem is not null)
         {
             _restartItem.Enabled = _raceWanted || _race.IsRunning || _race.IsDead;
+            _restartItem.Text = Strings.TrayRestart;
         }
     }
 
@@ -754,27 +933,27 @@ public partial class App : Application
             return;
         }
 
-        // Player tip stays short; engineering status only under 高级.
+        // Player tip stays short; engineering status only under Advanced.
         string playerTip;
         if (_watcher?.IsTracking != true)
         {
-            playerTip = "CPURacer — 监视已暂停";
+            playerTip = Strings.TipPausedWatch;
         }
         else if (_race.IsRunning)
         {
-            playerTip = "CPURacer — 比赛中 · Space 重开";
+            playerTip = Strings.TipRacing;
         }
         else if (_race.IsDead)
         {
-            playerTip = "CPURacer — 结束 · Space 重开";
+            playerTip = Strings.TipGameOver;
         }
         else if (roi is null)
         {
-            playerTip = "CPURacer — 打开任务管理器 CPU 图";
+            playerTip = Strings.TipOpenCpu;
         }
         else
         {
-            playerTip = "CPURacer — Space 或托盘「开始」";
+            playerTip = Strings.TipSpaceStart;
         }
 
         _tray.Text = playerTip.Length <= 63 ? playerTip : playerTip[..63];
@@ -786,7 +965,7 @@ public partial class App : Application
 
         if (!_watcher.IsTracking)
         {
-            _statusItem.Text = "状态: 监视已暂停";
+            _statusItem.Text = Strings.TrayStatusPrefix + Strings.TrayStatusPaused;
             return;
         }
 
@@ -795,7 +974,8 @@ public partial class App : Application
         var race = _race.IsDead ? "dead" : _race.IsRunning ? "race" : _raceWanted ? "wait" : "idle";
         if (roi is null)
         {
-            _statusItem.Text = $"状态: tracking ({backend}/{follow}, no CPU chart)";
+            _statusItem.Text =
+                $"{Strings.TrayStatusPrefix}tracking ({backend}/{follow}, no CPU chart)";
             return;
         }
 
@@ -806,7 +986,7 @@ public partial class App : Application
             ? _nativeOverlay.DiagnosticStatus
             : _capStatus;
         _statusItem.Text =
-            $"状态: {roi.Value.Width}x{roi.Value.Height} ({backend}/{follow}) show={show} {cap} {race}";
+            $"{Strings.TrayStatusPrefix}{roi.Value.Width}x{roi.Value.Height} ({backend}/{follow}) show={show} {cap} {race}";
     }
 
     private void ToggleTracking()
@@ -836,7 +1016,7 @@ public partial class App : Application
         if (!TrackNativeApi.IsAvailable())
         {
             Forms.MessageBox.Show(
-                "未找到 CPURacer.TrackNative.dll。\n请先运行仓库根目录的 build.cmd（一行构建），再启动。",
+                Strings.MsgTrackNativeMissing,
                 "CPURacer",
                 Forms.MessageBoxButtons.OK,
                 Forms.MessageBoxIcon.Warning);
@@ -845,7 +1025,7 @@ public partial class App : Application
         _overlay.FollowMode = TrackFollowMode.Child;
         _watcher.SetFollowMode(_followMode);
         _watcher.Start();
-        _trackItem.Text = "暂停监视 Taskmgr";
+        _trackItem.Text = Strings.TrayPauseWatch;
         _captureFailStreak = 0;
         _externalFrameFailStreak = 0;
         _capStatus = "cap=…";
@@ -882,7 +1062,7 @@ public partial class App : Application
         StopExternalLoop();
         _captureTimer.Stop();
         _watcher.Stop();
-        _trackItem.Text = "恢复监视 Taskmgr";
+        _trackItem.Text = Strings.TrayResumeWatch;
         _capStatus = "";
         _captureFailStreak = 0;
         _externalFrameFailStreak = 0;
@@ -905,14 +1085,14 @@ public partial class App : Application
         {
             _overlay.HidePlaceholder();
             _overlayItem.Checked = false;
-            _overlayItem.Text = "手动显示 Overlay";
+            _overlayItem.Text = Strings.TrayManualOverlay;
         }
         else
         {
             _overlay.ShowDebugChrome = _debugOverlay;
             _overlay.ShowPlaceholder();
             _overlayItem.Checked = true;
-            _overlayItem.Text = "取消手动显示";
+            _overlayItem.Text = Strings.TrayManualOverlayCancel;
         }
     }
 
@@ -936,6 +1116,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        Locale.Changed -= OnLocaleChanged;
         _raceWanted = false;
         _race.Stop();
         StopRaceHostLoop();

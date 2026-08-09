@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="PromptIdle" xml:space="preserve"><value>按下
+&lt;figgle&gt;SPACE&lt;/figgle&gt;
+开始游戏</value></data>
+  <data name="PromptGameOver" xml:space="preserve"><value>&lt;figgle&gt;GAME OVER&lt;/figgle&gt;
+按 SPACE 再来一局
+{0:0.0}m · 最佳 {1:0.0}m</value></data>
+  <data name="PromptWaitingChart" xml:space="preserve"><value>打开任务管理器
+性能 → CPU</value></data>
+  <data name="PromptCaptureFail" xml:space="preserve"><value>看不到 CPU 图
+请打开 性能 → CPU</value></data>
+  <data name="HudRacing" xml:space="preserve"><value>{0:0.0}m  最佳 {1:0.0}m</value></data>
+  <data name="HudFlipped" xml:space="preserve"><value>翻车 · {0:0.0}m — Space</value></data>
+  <data name="TrayStart" xml:space="preserve"><value>开始</value></data>
+  <data name="TrayStop" xml:space="preserve"><value>停止</value></data>
+  <data name="TrayRestart" xml:space="preserve"><value>重开（Space）</value></data>
+  <data name="TrayExit" xml:space="preserve"><value>退出</value></data>
+  <data name="TrayAdvanced" xml:space="preserve"><value>高级</value></data>
+  <data name="TrayPauseWatch" xml:space="preserve"><value>暂停监视 Taskmgr</value></data>
+  <data name="TrayResumeWatch" xml:space="preserve"><value>恢复监视 Taskmgr</value></data>
+  <data name="TrayFollowMode" xml:space="preserve"><value>跟随方式</value></data>
+  <data name="TrayFollowExternal" xml:space="preserve"><value>外部 Overlay（WinEvent）</value></data>
+  <data name="TrayFollowChild" xml:space="preserve"><value>子窗 SetParent（TaskmgrPlayer 式）</value></data>
+  <data name="TrayManualOverlay" xml:space="preserve"><value>手动显示 Overlay</value></data>
+  <data name="TrayManualOverlayCancel" xml:space="preserve"><value>取消手动显示</value></data>
+  <data name="TrayDebugChrome" xml:space="preserve"><value>调试描边（Tab）</value></data>
+  <data name="TrayDebugFit" xml:space="preserve"><value>调试拟合线</value></data>
+  <data name="TrayStatusPrefix" xml:space="preserve"><value>状态: </value></data>
+  <data name="TrayStatusPaused" xml:space="preserve"><value>监视已暂停</value></data>
+  <data name="TrayLanguage" xml:space="preserve"><value>语言</value></data>
+  <data name="TrayLanguageEn" xml:space="preserve"><value>English</value></data>
+  <data name="TrayLanguageZh" xml:space="preserve"><value>中文</value></data>
+  <data name="TipPausedWatch" xml:space="preserve"><value>CPURacer — 监视已暂停</value></data>
+  <data name="TipOpenCpu" xml:space="preserve"><value>CPURacer — 打开任务管理器 CPU 图</value></data>
+  <data name="TipSpaceStart" xml:space="preserve"><value>CPURacer — Space 或托盘「开始」</value></data>
+  <data name="TipRacing" xml:space="preserve"><value>CPURacer — 比赛中 · Space 重开</value></data>
+  <data name="TipGameOver" xml:space="preserve"><value>CPURacer — 结束 · Space 重开</value></data>
+  <data name="MsgWatchPaused" xml:space="preserve"><value>监视已暂停。
+托盘 → 高级 → 恢复监视 Taskmgr。</value></data>
+  <data name="MsgNeedCpuChart" xml:space="preserve"><value>请打开任务管理器 → 性能 → CPU。
+图就绪后按 Space，或再点「开始」。</value></data>
+  <data name="MsgAdminUipi" xml:space="preserve"><value>当前不是管理员运行。
+
+若任务管理器是管理员启动的，本程序的 W/S 可能无响应（UIPI）。
+建议：退出后对本程序「以管理员身份运行」。
+
+若 Taskmgr 也是普通权限，可忽略本提示。</value></data>
+  <data name="MsgTrackNativeMissing" xml:space="preserve"><value>未找到 CPURacer.TrackNative.dll。
+请先运行仓库根目录的 build.cmd，再启动。</value></data>
+</root>

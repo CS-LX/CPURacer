@@ -22,6 +22,7 @@ public sealed class OverlayWindow : Window
     private bool _showFitPolyline;
     private string _statusText = "CPURacer";
     private string? _playerBanner;
+    private string? _centerPrompt;
     private TrackFollowMode _followMode = TrackFollowMode.External;
     private IntPtr _attachedParent = IntPtr.Zero;
     private bool _childStylesApplied;
@@ -181,14 +182,24 @@ public sealed class OverlayWindow : Window
         RebuildBackingStore();
     }
 
-    /// <summary>Draw-only car pose. Does not affect placement or capture.</summary>
-    /// <summary>Player banner when not racing (idle tip).</summary>
+    /// <summary>Top-left player line (racing HUD).</summary>
     public string? PlayerBanner
     {
         get => _playerBanner;
         set
         {
             _playerBanner = value;
+            RebuildBackingStore();
+        }
+    }
+
+    /// <summary>Pre-expanded multiline prompt drawn centered.</summary>
+    public string? CenterPrompt
+    {
+        get => _centerPrompt;
+        set
+        {
+            _centerPrompt = value;
             RebuildBackingStore();
         }
     }
@@ -287,21 +298,35 @@ public sealed class OverlayWindow : Window
                         VisualTreeHelper.GetDpi(this).PixelsPerDip);
                     dc.DrawText(text, new Point(10, 8));
                 }
-                else
+                else if (_carPose is { IsRunning: true, IsDead: false } running
+                         && !string.IsNullOrEmpty(running.Hud))
                 {
-                    var line = _carPose is { } pose ? pose.Hud : _playerBanner;
-                    if (!string.IsNullOrEmpty(line))
-                    {
-                        var text = new FormattedText(
-                            line!,
-                            System.Globalization.CultureInfo.CurrentUICulture,
-                            FlowDirection.LeftToRight,
-                            new Typeface("Consolas"),
-                            13,
-                            new SolidColorBrush(Color.FromArgb(245, ar, ag, ab)),
-                            VisualTreeHelper.GetDpi(this).PixelsPerDip);
-                        dc.DrawText(text, new Point(8, 6));
-                    }
+                    var text = new FormattedText(
+                        running.Hud,
+                        System.Globalization.CultureInfo.CurrentUICulture,
+                        FlowDirection.LeftToRight,
+                        new Typeface("Consolas"),
+                        13,
+                        new SolidColorBrush(Color.FromArgb(245, ar, ag, ab)),
+                        VisualTreeHelper.GetDpi(this).PixelsPerDip);
+                    dc.DrawText(text, new Point(8, 6));
+                }
+                else if (!string.IsNullOrEmpty(_playerBanner))
+                {
+                    var text = new FormattedText(
+                        _playerBanner!,
+                        System.Globalization.CultureInfo.CurrentUICulture,
+                        FlowDirection.LeftToRight,
+                        new Typeface("Consolas"),
+                        13,
+                        new SolidColorBrush(Color.FromArgb(245, ar, ag, ab)),
+                        VisualTreeHelper.GetDpi(this).PixelsPerDip);
+                    dc.DrawText(text, new Point(8, 6));
+                }
+
+                if (!ShowDebugChrome && !string.IsNullOrEmpty(_centerPrompt))
+                {
+                    DrawCenteredPrompt(dc, _centerPrompt!, drawW, drawH, ar, ag, ab);
                 }
             }
         }
@@ -409,6 +434,41 @@ public sealed class OverlayWindow : Window
         var x = cx + localX * cos - localY * sin;
         var y = cy + localX * sin + localY * cos;
         dc.DrawEllipse(fill, stroke, new Point(x, y), radius, radius);
+    }
+
+    private void DrawCenteredPrompt(
+        DrawingContext dc,
+        string prompt,
+        double drawW,
+        double drawH,
+        byte ar,
+        byte ag,
+        byte ab)
+    {
+        var normalized = prompt.Replace("\r\n", "\n", StringComparison.Ordinal);
+        var lineCount = 1;
+        foreach (var ch in normalized)
+        {
+            if (ch == '\n')
+            {
+                lineCount++;
+            }
+        }
+
+        var fontSize = Math.Clamp(drawH / (lineCount * 1.25), 8, 20);
+        var brush = new SolidColorBrush(Color.FromArgb(245, ar, ag, ab));
+        brush.Freeze();
+        var text = new FormattedText(
+            normalized,
+            System.Globalization.CultureInfo.InvariantCulture,
+            FlowDirection.LeftToRight,
+            new Typeface("Consolas"),
+            fontSize,
+            brush,
+            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        var x = (drawW - text.Width) * 0.5;
+        var y = (drawH - text.Height) * 0.5;
+        dc.DrawText(text, new Point(Math.Max(0, x), Math.Max(0, y)));
     }
 
     private void DrawThrottleBar(DrawingContext dc, CarState car, double drawW, double drawH, byte ar, byte ag, byte ab)

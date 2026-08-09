@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="PromptIdle" xml:space="preserve"><value>press
+&lt;figgle&gt;SPACE&lt;/figgle&gt;
+to play</value></data>
+  <data name="PromptGameOver" xml:space="preserve"><value>&lt;figgle&gt;GAME OVER&lt;/figgle&gt;
+press SPACE to retry
+{0:0.0}m · best {1:0.0}m</value></data>
+  <data name="PromptWaitingChart" xml:space="preserve"><value>open Task Manager
+Performance → CPU</value></data>
+  <data name="PromptCaptureFail" xml:space="preserve"><value>can't see CPU chart
+open Performance → CPU</value></data>
+  <data name="HudRacing" xml:space="preserve"><value>{0:0.0}m  best {1:0.0}m</value></data>
+  <data name="HudFlipped" xml:space="preserve"><value>Flipped · {0:0.0}m — Space</value></data>
+  <data name="TrayStart" xml:space="preserve"><value>Start</value></data>
+  <data name="TrayStop" xml:space="preserve"><value>Stop</value></data>
+  <data name="TrayRestart" xml:space="preserve"><value>Restart (Space)</value></data>
+  <data name="TrayExit" xml:space="preserve"><value>Exit</value></data>
+  <data name="TrayAdvanced" xml:space="preserve"><value>Advanced</value></data>
+  <data name="TrayPauseWatch" xml:space="preserve"><value>Pause watching Taskmgr</value></data>
+  <data name="TrayResumeWatch" xml:space="preserve"><value>Resume watching Taskmgr</value></data>
+  <data name="TrayFollowMode" xml:space="preserve"><value>Follow mode</value></data>
+  <data name="TrayFollowExternal" xml:space="preserve"><value>External Overlay (WinEvent)</value></data>
+  <data name="TrayFollowChild" xml:space="preserve"><value>Child SetParent (TaskmgrPlayer)</value></data>
+  <data name="TrayManualOverlay" xml:space="preserve"><value>Show Overlay manually</value></data>
+  <data name="TrayManualOverlayCancel" xml:space="preserve"><value>Hide manual Overlay</value></data>
+  <data name="TrayDebugChrome" xml:space="preserve"><value>Debug chrome (Tab)</value></data>
+  <data name="TrayDebugFit" xml:space="preserve"><value>Debug fit polyline</value></data>
+  <data name="TrayStatusPrefix" xml:space="preserve"><value>Status: </value></data>
+  <data name="TrayStatusPaused" xml:space="preserve"><value>watching paused</value></data>
+  <data name="TrayLanguage" xml:space="preserve"><value>Language</value></data>
+  <data name="TrayLanguageEn" xml:space="preserve"><value>English</value></data>
+  <data name="TrayLanguageZh" xml:space="preserve"><value>中文</value></data>
+  <data name="TipPausedWatch" xml:space="preserve"><value>CPURacer — watching paused</value></data>
+  <data name="TipOpenCpu" xml:space="preserve"><value>CPURacer — open Taskmgr CPU chart</value></data>
+  <data name="TipSpaceStart" xml:space="preserve"><value>CPURacer — Space or tray Start</value></data>
+  <data name="TipRacing" xml:space="preserve"><value>CPURacer — racing · Space restart</value></data>
+  <data name="TipGameOver" xml:space="preserve"><value>CPURacer — over · Space retry</value></data>
+  <data name="MsgWatchPaused" xml:space="preserve"><value>Watching is paused.
+Tray → Advanced → Resume watching Taskmgr.</value></data>
+  <data name="MsgNeedCpuChart" xml:space="preserve"><value>Open Task Manager → Performance → CPU.
+When the chart is ready, press Space or Start again.</value></data>
+  <data name="MsgAdminUipi" xml:space="preserve"><value>Not running as administrator.
+
+If Task Manager is elevated, W/S may not work (UIPI).
+Tip: quit and Run as administrator.
+
+If Taskmgr is also a standard user, you can ignore this.</value></data>
+  <data name="MsgTrackNativeMissing" xml:space="preserve"><value>CPURacer.TrackNative.dll not found.
+Run build.cmd at the repo root, then start again.</value></data>
+</root>

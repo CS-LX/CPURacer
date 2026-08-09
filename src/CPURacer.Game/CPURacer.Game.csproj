@@ -10,6 +10,7 @@
   <ItemGroup>
     <ProjectReference Include="..\CPURacer.Capture\CPURacer.Capture.csproj" />
     <ProjectReference Include="..\CPURacer.Native\CPURacer.Native.csproj" />
+    <ProjectReference Include="..\CPURacer.Localization\CPURacer.Localization.csproj" />
   </ItemGroup>
 
   <ItemGroup>
