@@ -104,9 +104,6 @@ public static class NativeMethods
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
-    [DllImport("user32.dll")]
-    public static extern bool ScreenToClient(IntPtr hWnd, ref POINT point);
-
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
 
@@ -134,11 +131,4 @@ public struct RECT
 
     public readonly int Width => Right - Left;
     public readonly int Height => Bottom - Top;
-}
-
-[StructLayout(LayoutKind.Sequential)]
-public struct POINT
-{
-    public int X;
-    public int Y;
 }
