@@ -17,6 +17,13 @@ if not defined MSBUILD (
   if exist "%VSWHERE%" for /f "usebackq delims=" %%i in (`"%VSWHERE%" -latest -products * -requires Microsoft.Component.MSBuild -find "MSBuild\**\Bin\MSBuild.exe"`) do set "MSBUILD=%%i"
 )
 
+rem GitHub Actions (setup-msbuild) and developer machines with MSBuild on PATH.
+if not defined MSBUILD for /f "delims=" %%i in ('where msbuild 2^>nul') do (
+  set "MSBUILD=%%i"
+  goto :msbuild_ready
+)
+:msbuild_ready
+
 if not defined MSBUILD (
   echo ERROR: MSBuild not found. Install VS 2022 ^(MSBuild + Desktop C++ + .NET^).
   exit /b 1
