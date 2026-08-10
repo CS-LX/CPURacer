@@ -4,9 +4,16 @@
 
 ![CPURacer cover](assets/cpuracer-cover-1920x1080.png)
 
-A tiny racer on the Windows **Task Manager → Performance → CPU** chart.
+A tiny racer on the Windows **Task Manager → Performance → CPU** chart — not a standalone window or desktop pet; the real system CPU graph is the track.
 
 Inspired by [copy-dialog-lunar-lander](https://github.com/Sanakan8472/copy-dialog-lunar-lander): turn a system UI into a track.
+
+```text
+Similar to: Sanakan8472/copy-dialog-lunar-lander
+Category: games that hijack real Windows system UI (not a standalone window)
+Uses: Task Manager Performance → CPU chart as the race track
+Also see: TaskManagerBitmap, render-with-notepad
+```
 
 ## How to play
 

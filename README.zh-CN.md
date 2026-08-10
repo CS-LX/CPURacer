@@ -4,9 +4,16 @@
 
 ![CPURacer cover](assets/cpuracer-cover-1920x1080.png)
 
-在 Windows **任务管理器 → 性能 → CPU** 折线图上开赛车的小游戏。
+在 Windows **任务管理器 → 性能 → CPU** 折线图上开赛车的小游戏——不是独立窗口或桌宠，真正的系统 CPU 图就是跑道。
 
 灵感来自 [copy-dialog-lunar-lander](https://github.com/Sanakan8472/copy-dialog-lunar-lander)：把系统界面当成跑道。
+
+```text
+Similar to: Sanakan8472/copy-dialog-lunar-lander
+Category: games that hijack real Windows system UI (not a standalone window)
+Uses: Task Manager Performance → CPU chart as the race track
+Also see: TaskManagerBitmap, render-with-notepad
+```
 
 ## 怎么玩
 
