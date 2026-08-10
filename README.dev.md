@@ -1,6 +1,6 @@
 # CPURacer — 开发者说明
 
-玩家向说明见根目录 [README.md](README.md)。
+玩家向说明：[English](README.md) · [简体中文](README.zh-CN.md)。
 
 ## 环境
 
