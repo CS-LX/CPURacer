@@ -29,7 +29,7 @@ dotnet run --project src\CPURacer.App --no-build
 
 ```powershell
 .\pack-release.cmd
-# 可选：.\pack-release.cmd 0.4.2
+# 可选：.\pack-release.cmd 1.0.0.0
 # CI 可设环境变量 PACK_NAME=CPURacer-ci-<sha> 覆盖 zip 名
 ```
 
