@@ -33,12 +33,12 @@
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <OutDir>$(SolutionDir)CPURacer.App\bin\$(Configuration)\net8.0-windows\</OutDir>
+    <OutDir>$(SolutionDir)CPURacer.App\bin\$(Configuration)\net8.0-windows10.0.20348.0\</OutDir>
     <IntDir>$(SolutionDir)CPURacer.TrackNative\obj\$(Configuration)\</IntDir>
     <TargetName>CPURacer.TrackNative</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <OutDir>$(SolutionDir)CPURacer.App\bin\$(Configuration)\net8.0-windows\</OutDir>
+    <OutDir>$(SolutionDir)CPURacer.App\bin\$(Configuration)\net8.0-windows10.0.20348.0\</OutDir>
     <IntDir>$(SolutionDir)CPURacer.TrackNative\obj\$(Configuration)\</IntDir>
     <TargetName>CPURacer.TrackNative</TargetName>
   </PropertyGroup>

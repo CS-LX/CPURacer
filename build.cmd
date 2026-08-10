@@ -34,16 +34,16 @@ echo Building mixed C# + C++ solution ^(one step^)...
 "%MSBUILD%" "%~dp0src\CPURacer.sln" /m /restore /p:Configuration=%CONFIG% /p:Platform="Any CPU"
 if errorlevel 1 exit /b 1
 
-if not exist "%~dp0src\CPURacer.App\bin\%CONFIG%\net8.0-windows\CPURacer.TrackNative.dll" (
-  echo TrackNative.dll missing in App output — building vcxproj explicitly...
+if not exist "%~dp0src\CPURacer.App\bin\%CONFIG%\net8.0-windows10.0.20348.0\CPURacer.TrackNative.dll" (
+  echo TrackNative.dll missing in App output - building vcxproj explicitly...
   "%MSBUILD%" "%~dp0src\CPURacer.TrackNative\CPURacer.TrackNative.vcxproj" /m /p:Configuration=%CONFIG% /p:Platform=x64
   if errorlevel 1 exit /b 1
 )
 
 echo.
 echo Build OK.
-echo   src\CPURacer.App\bin\%CONFIG%\net8.0-windows\CPURacer.exe
-echo   src\CPURacer.App\bin\%CONFIG%\net8.0-windows\CPURacer.TrackNative.dll
+echo   src\CPURacer.App\bin\%CONFIG%\net8.0-windows10.0.20348.0\CPURacer.exe
+echo   src\CPURacer.App\bin\%CONFIG%\net8.0-windows10.0.20348.0\CPURacer.TrackNative.dll
 echo.
 echo Run:
 echo   dotnet run --project src\CPURacer.App --no-build

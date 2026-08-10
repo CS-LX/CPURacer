@@ -64,6 +64,8 @@ src/
 
 **本地化 / Figgle：** `Strings*.resx` 提供托盘与 MessageBox；`<figgle>SPACE</figgle>` 由 `FigglePrompt` 运行时展开为 ASCII，画在 Overlay 正中。默认跟随系统 UI（`zh*` → 中文，否则英文）；托盘「高级 → 语言」可切换（进程内，不落盘）。
 
+**可录屏捕获：** 默认 External 用自研 Windows Graphics Capture 只采 Taskmgr 窗口，再按 `DWMWA_EXTENDED_FRAME_BOUNDS` 屏幕坐标裁 CPU ROI；独立 Overlay 不进入地形帧，因此无需 `WDA_EXCLUDEFROMCAPTURE`。会话在 `StartCapture` 前设置 `IsBorderRequired=false`（需系统 borderless 授权）。高级 Child 模式保留桌面 BitBlt + WDA。编译 TFM：`net8.0-windows10.0.20348.0`。
+
 ## 里程碑状态（摘要）
 
 | 阶段 | 状态 |
@@ -73,6 +75,7 @@ src/
 | M3 物理赛车 | ✅ |
 | M4 玩家壳 | ✅（PDH / 单文件发布等延后） |
 | Figgle 开局/结束 + en/zh-Hans | ✅（2026-08-09） |
+| External Overlay 可截图 / 录屏 | ✅（2026-08-10；自研 WGC + ExtendedFrame；最大化/无黄边已验收） |
 
 ## 文档与参考
 
@@ -94,4 +97,5 @@ src/
 2. English：`press / SPACE / to play`；托盘英文  
 3. Space 开赛后中央提示消失；出界后中央 Figgle `GAME OVER` + 再试提示  
 
-4. External Overlay 仍点击穿透；托盘焦点往返门禁不破
+4. External Overlay 仍点击穿透；托盘焦点往返门禁不破  
+5. 系统截图 / OBS 显示捕获可看到车与提示；运行数分钟后拟合不受 Overlay 正反馈污染
