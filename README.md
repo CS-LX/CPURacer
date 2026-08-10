@@ -1,32 +1,34 @@
 # CPURacer
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 ![CPURacer cover](assets/cpuracer-cover-1920x1080.png)
 
-在 Windows **任务管理器 → 性能 → CPU** 折线图上开赛车的小游戏。
+A tiny racer on the Windows **Task Manager → Performance → CPU** chart.
 
-灵感来自 [copy-dialog-lunar-lander](https://github.com/Sanakan8472/copy-dialog-lunar-lander)：把系统界面当成跑道。
+Inspired by [copy-dialog-lunar-lander](https://github.com/Sanakan8472/copy-dialog-lunar-lander): turn a system UI into a track.
 
-## 怎么玩
+## How to play
 
-1. 从 [Releases](https://github.com/CS-LX/CPURacer/releases) 下载并解压，运行 `CPURacer.exe`  
-   - 若任务管理器是管理员启动的，本程序也要用管理员运行（否则方向键可能无效）
-2. 打开 **任务管理器 → 性能 → CPU**，点一下让它在前台
-3. 图中央出现开局提示（ASCII `SPACE`）后按 **Space**（或托盘 / 双击托盘「开始」）
-4. **W / ↑** 加油门 · **S / ↓** 减油门（可倒车）· **Space** 重开  
-5. 别被滚动的折线图甩出画面；结束后中央会显示 ASCII `GAME OVER`
+1. Download from [Releases](https://github.com/CS-LX/CPURacer/releases), unzip, run `CPURacer.exe`
+   - If Task Manager is running elevated, run this app as administrator too (otherwise steering keys may not work)
+2. Open **Task Manager → Performance → CPU** and bring it to the foreground
+3. When the center prompt (ASCII `SPACE`) appears, press **Space** (or use the tray / double-click tray **Start**)
+4. **W / ↑** throttle · **S / ↓** brake / reverse · **Space** restart
+5. Stay on the scrolling chart; when you wipe out, the center shows ASCII `GAME OVER`
 
-托盘菜单：开始 / 停止、重开、退出。更多选项在「高级」（含语言：English / 中文）。
+Tray: Start / Stop, Restart, Exit. More options under **Advanced** (including Language: English / 中文).
 
-## 需要什么
+## Requirements
 
-- Windows 10 / 11（x64）
-- 已安装 [.NET 8 桌面运行时](https://dotnet.microsoft.com/download/dotnet/8.0)（若直接运行 `CPURacer.exe` 提示缺运行时再装）
+- Windows 10 / 11 (x64)
+- [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) (install if `CPURacer.exe` complains about a missing runtime)
 
-## 已知问题
+## Known issues
 
-- Taskmgr 高权限、游戏非管理员时，W/S 可能被系统挡住（UIPI）
-- 捕不到 CPU 大图时暂无备用山路，请确认开着性能/CPU 视图
+- If Taskmgr is elevated and the game is not, W/S may be blocked by UIPI
+- No fallback terrain yet when the CPU chart cannot be captured — keep Performance → CPU open
 
-## 开发者
+## Developers
 
-构建、工程结构、里程碑与调研笔记见 **[README.dev.md](README.dev.md)**。
+Build steps, layout, milestones, and research notes: **[README.dev.md](README.dev.md)**.
