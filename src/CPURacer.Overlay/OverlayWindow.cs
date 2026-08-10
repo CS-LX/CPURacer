@@ -23,7 +23,6 @@ public sealed class OverlayWindow : Window
     private string _statusText = "CPURacer";
     private string? _playerBanner;
     private string? _centerPrompt;
-    private TrackFollowMode _followMode = TrackFollowMode.External;
     private IntPtr _attachedParent = IntPtr.Zero;
     private bool _childStylesApplied;
     private int _savedStyle;
@@ -47,7 +46,7 @@ public sealed class OverlayWindow : Window
         AllowsTransparency = true;
         WindowStyle = WindowStyle.None;
         Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0));
-        Topmost = true;
+        Topmost = false;
         ShowInTaskbar = false;
         ResizeMode = ResizeMode.NoResize;
         Focusable = true;
@@ -94,26 +93,6 @@ public sealed class OverlayWindow : Window
         }
     }
 
-    /// <summary>Optional plot inset in physical pixels (M2+).</summary>
-    public Thickness PlotInsetPx { get; set; }
-
-    public TrackFollowMode FollowMode
-    {
-        get => _followMode;
-        set
-        {
-            if (_followMode == value)
-            {
-                return;
-            }
-
-            DetachFromChart();
-            _followMode = value;
-            Topmost = value == TrackFollowMode.External;
-            ApplyPlacement();
-        }
-    }
-
     public bool ForceVisible
     {
         get => _forceVisible;
@@ -152,15 +131,7 @@ public sealed class OverlayWindow : Window
         }
 
         RefreshStatusText();
-
-        if (FollowMode == TrackFollowMode.Child)
-        {
-            ApplyPlacement();
-        }
-        else
-        {
-            RebuildBackingStore();
-        }
+        ApplyPlacement();
     }
 
     public void SetHeightField(HeightField? field, string captureStatus = "")
@@ -234,7 +205,7 @@ public sealed class OverlayWindow : Window
     public void HidePlaceholder()
     {
         _forceVisible = false;
-        Topmost = FollowMode == TrackFollowMode.External;
+        Topmost = false;
         ApplyPlacement();
         RebuildBackingStore();
     }
@@ -529,10 +500,9 @@ public sealed class OverlayWindow : Window
         }
 
         var r = _roi.Value;
-        var tag = FollowMode == TrackFollowMode.Child ? "child" : "external";
         var cap = string.IsNullOrEmpty(_captureStatus) ? "" : $" {_captureStatus}";
         _statusText =
-            $"CPURacer [{tag}] — {r.Width}x{r.Height} dpi={r.Dpi} show={r.ShouldShow}{cap}";
+            $"CPURacer [child] — {r.Width}x{r.Height} dpi={r.Dpi} show={r.ShouldShow}{cap}";
     }
 
     private void ApplyPlacement()
@@ -547,39 +517,7 @@ public sealed class OverlayWindow : Window
             return;
         }
 
-        var show = _forceVisible || _roi.Value.ShouldShow;
-        if (FollowMode == TrackFollowMode.Child)
-        {
-            PlaceAsChild(show);
-        }
-        else
-        {
-            PlaceExternal(show);
-        }
-    }
-
-    private void PlaceExternal(bool show)
-    {
-        // Avoid touching Child attachment; Detach is a no-op when not attached.
-        if (_attachedParent != IntPtr.Zero || _childStylesApplied)
-        {
-            DetachFromChart();
-        }
-
-        Topmost = true;
-
-        var roi = _roi!.Value;
-        var leftPx = roi.Left + (int)PlotInsetPx.Left;
-        var topPx = roi.Top + (int)PlotInsetPx.Top;
-        var widthPx = Math.Max(1, roi.Width - (int)PlotInsetPx.Left - (int)PlotInsetPx.Right);
-        var heightPx = Math.Max(1, roi.Height - (int)PlotInsetPx.Top - (int)PlotInsetPx.Bottom);
-        var (left, top, width, height) = CoordMapper.RectPixelsToDiu(leftPx, topPx, widthPx, heightPx, roi.Dpi);
-
-        Left = left;
-        Width = width;
-        Height = height;
-        Top = show ? top : OffscreenTop;
-        EnsureWindowShown();
+        PlaceAsChild(_forceVisible || _roi.Value.ShouldShow);
     }
 
     private void PlaceAsChild(bool show)
@@ -718,12 +656,12 @@ public sealed class OverlayWindow : Window
 
         _lastChildW = -1;
         _lastChildH = -1;
-        Topmost = FollowMode == TrackFollowMode.External;
+        Topmost = false;
     }
 
     private void HideOverlaySurface()
     {
-        if (FollowMode == TrackFollowMode.Child && _attachedParent != IntPtr.Zero)
+        if (_attachedParent != IntPtr.Zero)
         {
             NativeMethods.ShowWindow(EnsureHandle(), NativeMethods.SwHide);
         }
@@ -744,8 +682,7 @@ public sealed class OverlayWindow : Window
     {
         if (!IsVisible)
         {
-            // Showing a topmost WPF window must not steal Taskmgr focus.
-            ShowActivated = FollowMode != TrackFollowMode.External;
+            ShowActivated = false;
             Show();
         }
     }

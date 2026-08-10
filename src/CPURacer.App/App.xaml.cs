@@ -67,7 +67,6 @@ public partial class App : Application
         {
             ShowDebugChrome = _debugOverlay,
             ShowFitPolyline = _showFitPolyline,
-            FollowMode = TrackFollowMode.Child,
         };
         _nativeOverlay = new NativeExternalOverlay
         {
@@ -887,11 +886,7 @@ public partial class App : Application
             {
                 _nativeOverlay?.SetCarPose(null);
                 _nativeOverlay?.ClearRoi();
-                if (_overlay is not null)
-                {
-                    _overlay.FollowMode = TrackFollowMode.Child;
-                    _overlay.ApplyRoi(_watcher.CurrentRoi);
-                }
+                _overlay?.ApplyRoi(_watcher.CurrentRoi);
             }
         }
 
@@ -1023,7 +1018,6 @@ public partial class App : Application
                 Forms.MessageBoxIcon.Warning);
         }
 
-        _overlay.FollowMode = TrackFollowMode.Child;
         _watcher.SetFollowMode(_followMode);
         _watcher.Start();
         _trackItem.Text = Strings.TrayPauseWatch;

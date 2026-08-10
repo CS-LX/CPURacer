@@ -47,9 +47,6 @@ internal sealed class WgcWindowSession : IDisposable
         _item.Closed += OnClosed;
     }
 
-    public int Width => _lastSize.Width;
-    public int Height => _lastSize.Height;
-
     public static async Task<WgcWindowSession?> TryStartAsync(
         IntPtr hwnd,
         CancellationToken cancellationToken)

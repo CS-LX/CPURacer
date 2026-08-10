@@ -156,7 +156,7 @@ public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
     /// <summary>
     /// Maps the chart screen rect into the WGC buffer via ExtendedFrame bounds.
     /// Measured on this machine: item.Size == DWMWA_EXTENDED_FRAME_BOUNDS, and the
-    /// chart top border sits exactly at chart.Top - ext.Top (not ScreenToClient).
+    /// chart top border sits exactly at chart.Top - ext.Top.
     /// </summary>
     private static bool TryCropChartBgra(
         in CaptureKey key,
