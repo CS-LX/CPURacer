@@ -4,7 +4,7 @@ cd /d "%~dp0"
 
 set "CONFIG=Release"
 set "OUT=src\CPURacer.App\bin\%CONFIG%\net8.0-windows10.0.20348.0"
-set "VER=1.0.0.0"
+set "VER=1.1.0.0"
 if not "%~1"=="" set "VER=%~1"
 
 if not exist "%OUT%\CPURacer.exe" (
@@ -21,7 +21,7 @@ if not exist "%OUT%\CPURacer.TrackNative.dll" (
 rem Sanity: Release must not leave PDBs in App output (see src/Directory.Build.props + TrackNative).
 dir /b "%OUT%\*.pdb" 2>nul | findstr /r "." >nul
 if not errorlevel 1 (
-  echo ERROR: PDB files found under %OUT% â€?fix Release symbol settings, do not strip at pack time.
+  echo ERROR: PDB files found under %OUT% - fix Release symbol settings, do not strip at pack time.
   dir /b "%OUT%\*.pdb"
   exit /b 1
 )

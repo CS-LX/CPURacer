@@ -13,9 +13,9 @@
     <ApplicationIcon>CPURacer.ico</ApplicationIcon>
     <RootNamespace>CPURacer.App</RootNamespace>
     <AssemblyName>CPURacer</AssemblyName>
-    <Version>1.0.0.0</Version>
-    <FileVersion>1.0.0.0</FileVersion>
-    <InformationalVersion>1.0.0.0</InformationalVersion>
+    <Version>1.1.0.0</Version>
+    <FileVersion>1.1.0.0</FileVersion>
+    <InformationalVersion>1.1.0.0</InformationalVersion>
     <Product>CPURacer</Product>
     <Authors>CPURacer</Authors>
     <Description>Race on the Windows Task Manager CPU chart.</Description>

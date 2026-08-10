@@ -29,7 +29,7 @@ dotnet run --project src\CPURacer.App --no-build
 
 ```powershell
 .\pack-release.cmd
-# 可选：.\pack-release.cmd 1.0.0.0
+# 可选：.\pack-release.cmd 1.1.0.0
 # CI 可设环境变量 PACK_NAME=CPURacer-ci-<sha> 覆盖 zip 名
 ```
 
@@ -75,7 +75,7 @@ src/
 | M3 物理赛车 | ✅ |
 | M4 玩家壳 | ✅（PDH / 单文件发布等延后） |
 | Figgle 开局/结束 + en/zh-Hans | ✅（2026-08-09） |
-| External Overlay 可截图 / 录屏 | ✅（2026-08-10；自研 WGC + ExtendedFrame；最大化/无黄边已验收） |
+| External Overlay 可截图 / 录屏 | ✅（2026-08-10；自研 WGC + ExtendedFrame；最大化/无黄边已验收；发版 v1.1.0.0） |
 
 ## 文档与参考
 
