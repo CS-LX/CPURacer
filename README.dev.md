@@ -29,9 +29,22 @@ dotnet run --project src\CPURacer.App --no-build
 
 ```powershell
 .\pack-release.cmd
+# 可选：.\pack-release.cmd 0.4.2
+# CI 可设环境变量 PACK_NAME=CPURacer-ci-<sha> 覆盖 zip 名
 ```
 
 产物默认在 `dist\CPURacer-<version>-win-x64.zip`。
+
+## GitHub Actions
+
+工作流 [`.github/workflows/build.yml`](.github/workflows/build.yml)：`main` / PR / `v*` tag 在 `windows-latest` 上 Release 构建并上传 Artifact。
+
+| 触发 | zip 名 | Release |
+|---|---|---|
+| push / PR（无 tag） | `CPURacer-ci-<短sha>.zip` | 否 |
+| tag `v*` | `CPURacer-<x.x.x.x>-win-x64.zip`（缺段补 `0`） | 是 |
+
+> Windows 文件名不能含 `:`，故 CI 包用连字符而非 `CPURacer-ci:…`。
 
 ## 工程结构
 

@@ -26,8 +26,14 @@ if not errorlevel 1 (
   exit /b 1
 )
 
+rem PACK_NAME overrides the zip folder/file stem (CI: CPURacer-ci-<sha>).
+if defined PACK_NAME (
+  set "NAME=%PACK_NAME%"
+) else (
+  set "NAME=CPURacer-%VER%-win-x64"
+)
+
 set "STAGE=%TEMP%\CPURacer-pack-%RANDOM%"
-set "NAME=CPURacer-%VER%-win-x64"
 set "DIST=%~dp0dist"
 mkdir "%DIST%" 2>nul
 mkdir "%STAGE%\%NAME%" 2>nul
