@@ -1,5 +1,7 @@
 # CPURacer
 
+![CPURacer cover](assets/cpuracer-cover-1920x1080.png)
+
 在 Windows **任务管理器 → 性能 → CPU** 折线图上开赛车的小游戏。
 
 灵感来自 [copy-dialog-lunar-lander](https://github.com/Sanakan8472/copy-dialog-lunar-lander)：把系统界面当成跑道。
