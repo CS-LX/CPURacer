@@ -21,13 +21,14 @@
 
 ## 需要什么
 
-- Windows 10 / 11（x64）
+- Windows 10 版本 2004（20H1）或更高 / Windows 11（x64）
 - 已安装 [.NET 8 桌面运行时](https://dotnet.microsoft.com/download/dotnet/8.0)（若直接运行 `CPURacer.exe` 提示缺运行时再装）
 
 ## 已知问题
 
 - Taskmgr 高权限、游戏非管理员时，W/S 可能被系统挡住（UIPI）
 - 捕不到 CPU 大图时暂无备用山路，请确认开着性能/CPU 视图
+- 默认 External Overlay 可被截图和显示器录屏捕获（WGC 只采 Taskmgr；系统允许时无捕获黄边）；高级里的旧 Child 模式仍会从捕获中排除
 
 ## 开发者
 

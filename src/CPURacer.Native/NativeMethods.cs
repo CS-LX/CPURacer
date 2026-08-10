@@ -35,6 +35,35 @@ public static class NativeMethods
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+    /// <summary>
+    /// Visible window bounds (excludes invisible resize borders). Prefer this over
+    /// <see cref="GetWindowRect"/> when mapping into WGC capture space.
+    /// </summary>
+    public const int DwmwaExtendedFrameBounds = 9;
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmGetWindowAttribute(
+        IntPtr hwnd,
+        int dwAttribute,
+        out RECT pvAttribute,
+        int cbAttribute);
+
+    public static bool TryGetExtendedFrameBounds(IntPtr hwnd, out RECT bounds)
+    {
+        if (DwmGetWindowAttribute(
+                hwnd,
+                DwmwaExtendedFrameBounds,
+                out bounds,
+                Marshal.SizeOf<RECT>()) == 0
+            && bounds.Width > 0
+            && bounds.Height > 0)
+        {
+            return true;
+        }
+
+        return GetWindowRect(hwnd, out bounds) && bounds.Width > 0 && bounds.Height > 0;
+    }
+
     [DllImport("user32.dll")]
     public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
@@ -75,6 +104,9 @@ public static class NativeMethods
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
+    [DllImport("user32.dll")]
+    public static extern bool ScreenToClient(IntPtr hWnd, ref POINT point);
+
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
 
@@ -102,4 +134,11 @@ public struct RECT
 
     public readonly int Width => Right - Left;
     public readonly int Height => Bottom - Top;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct POINT
+{
+    public int X;
+    public int Y;
 }

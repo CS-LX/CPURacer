@@ -1,4 +1,4 @@
-﻿using System.Drawing;
+using System.Drawing;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -40,7 +40,8 @@ public partial class App : Application
     private bool _tabWasDown;
     private TrackFollowMode _followMode = TrackFollowMode.External;
 
-    private readonly ScreenRoiCapture _capture = new();
+    private readonly ScreenRoiCapture _screenCapture = new();
+    private readonly TaskmgrWindowCapture _windowCapture = new();
     private readonly HeightFieldExtractor _extractor = new();
     private readonly RaceSim _race = new();
     private DispatcherTimer? _captureTimer;
@@ -398,7 +399,7 @@ public partial class App : Application
             return;
         }
 
-        var frame = _capture.TryCapture(roi.Value);
+        var frame = _screenCapture.TryCapture(roi.Value);
 
         if (frame is null)
         {
@@ -421,12 +422,12 @@ public partial class App : Application
         var field = _extractor.Extract(frame);
         if (field is null)
         {
-            _capStatus = "cap=ok extract=skip";
+            _capStatus = $"cap={_screenCapture.Name}-ok extract=skip";
             _overlay.SetCaptureStatus(_capStatus);
         }
         else
         {
-            _capStatus = $"cap=ok cols={field.PlotWidth}";
+            _capStatus = $"cap={_screenCapture.Name}-ok cols={field.PlotWidth}";
             _overlay.SetHeightField(field, _capStatus);
         }
 
@@ -447,7 +448,7 @@ public partial class App : Application
 
         try
         {
-            _nativeOverlay.TickExternalFrame(_capture, _extractor);
+            _nativeOverlay.TickExternalFrame(_windowCapture, _extractor);
             _externalFrameFailStreak = 0;
         }
         catch (Exception ex)
@@ -1126,6 +1127,7 @@ public partial class App : Application
         _externalTimer = null;
         _raceTimer = null;
         GameInput.Uninstall();
+        _windowCapture.Dispose();
 
         _watcher?.Dispose();
         _watcher = null;

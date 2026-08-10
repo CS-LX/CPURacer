@@ -6,12 +6,14 @@ using CPURacer.Taskmgr;
 namespace CPURacer.Capture;
 
 /// <summary>
-/// PerMonitorV2 screen ROI via desktop BitBlt. The overlay HWND uses
-/// WDA_EXCLUDEFROMCAPTURE, so capture never needs to hide/show it.
+/// PerMonitorV2 screen ROI via desktop BitBlt.
+/// Kept for the legacy Child overlay, whose own HWND remains capture-excluded.
 /// </summary>
 public sealed class ScreenRoiCapture : IFrameCapture
 {
     private const int SrcCopy = 0x00CC0020;
+
+    public string Name => "screen";
 
     public CapturedFrame? TryCapture(in ChartRoi roi)
     {
@@ -41,8 +43,7 @@ public sealed class ScreenRoiCapture : IFrameCapture
             }
 
             hOld = SelectObject(hdcMem, hBitmap);
-            // Do not request layered-window capture; overlay exclusion is also enforced
-            // explicitly by WDA_EXCLUDEFROMCAPTURE on the overlay HWND.
+            // Do not request layered-window capture.
             if (!BitBlt(hdcMem, 0, 0, roi.Width, roi.Height, hdcScreen, roi.Left, roi.Top, SrcCopy))
             {
                 return null;

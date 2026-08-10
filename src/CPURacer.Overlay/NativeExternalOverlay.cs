@@ -46,6 +46,7 @@ public sealed class NativeExternalOverlay : IDisposable
     private bool _disposed;
     private int _pixelWidth = 1;
     private int _pixelHeight = 1;
+    private string _captureName = "none";
 
     private ID2D1Factory? _d2dFactory;
     private ID2D1HwndRenderTarget? _renderTarget;
@@ -80,16 +81,12 @@ public sealed class NativeExternalOverlay : IDisposable
 
     public bool IsVisible => _visible;
 
-    public bool DisplayAffinityApplied { get; private set; }
-
-    public int DisplayAffinityError { get; private set; }
-
     public string CaptureStatus { get; private set; } = "";
 
     public string WindowStatus { get; private set; } = "window=hidden";
 
     public string DiagnosticStatus =>
-        $"{CaptureStatus} {WindowStatus} {(DisplayAffinityApplied ? "wda=ok" : $"wda=fail({DisplayAffinityError})")}";
+        $"{CaptureStatus} {WindowStatus} source={_captureName} recordable=yes";
 
     /// <summary>Latest reliable terrain for RaceHost (read-only; Overlay never owns RaceSim).</summary>
     public HeightField? CurrentHeightField => _heightField;
@@ -126,9 +123,10 @@ public sealed class NativeExternalOverlay : IDisposable
 
     public void ClearRoi() => ApplyRoi(null);
 
-    public void TickExternalFrame(ScreenRoiCapture capture, HeightFieldExtractor extractor)
+    public void TickExternalFrame(IFrameCapture capture, HeightFieldExtractor extractor)
     {
         ThrowIfDisposed();
+        _captureName = capture.Name;
 
         if (_roi is null
             || _roi.Value.ChartHwnd == IntPtr.Zero
@@ -204,12 +202,12 @@ public sealed class NativeExternalOverlay : IDisposable
                 var field = extractor.Extract(frame);
                 if (field is null)
                 {
-                    CaptureStatus = "cap=ok extract=skip";
+                    CaptureStatus = $"cap={capture.Name}-ok extract=skip";
                 }
                 else
                 {
                     _heightField = field;
-                    CaptureStatus = $"cap=ok cols={field.PlotWidth}";
+                    CaptureStatus = $"cap={capture.Name}-ok cols={field.PlotWidth}";
                     HeightFieldUpdated?.Invoke(field);
                 }
             }
@@ -303,20 +301,7 @@ public sealed class NativeExternalOverlay : IDisposable
             _renderTarget?.Resize(new SizeI(_pixelWidth, _pixelHeight));
         }
 
-        if (!DisplayAffinityApplied && DisplayAffinityError == 0)
-        {
-            ApplyDisplayAffinity();
-        }
-
         return true;
-    }
-
-    private void ApplyDisplayAffinity()
-    {
-        DisplayAffinityApplied = NativeMethods.SetWindowDisplayAffinity(
-            _hwnd,
-            NativeMethods.WdaExcludeFromCapture);
-        DisplayAffinityError = DisplayAffinityApplied ? 0 : Marshal.GetLastWin32Error();
     }
 
     private void EnsureRenderTarget()
@@ -406,12 +391,9 @@ public sealed class NativeExternalOverlay : IDisposable
                 _redBrush!,
                 2f);
 
-            var affinity = DisplayAffinityApplied
-                ? "wda=ok"
-                : $"wda=fail({DisplayAffinityError})";
             var hud = _carPose is { } pose ? pose.Hud : null;
             var status = string.IsNullOrEmpty(hud)
-                ? $"CPURacer [native] {_pixelWidth}x{_pixelHeight} {CaptureStatus} {WindowStatus} {affinity}"
+                ? $"CPURacer [native] {_pixelWidth}x{_pixelHeight} {CaptureStatus} {WindowStatus} source={_captureName} recordable=yes"
                 : $"CPURacer [native] {CaptureStatus} | {hud}";
             target.DrawText(
                 status,

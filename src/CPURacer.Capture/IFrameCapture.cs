@@ -35,6 +35,9 @@ public sealed class CapturedFrame
 /// </summary>
 public interface IFrameCapture
 {
+    /// <summary>Short diagnostics name (for example, wgc or screen).</summary>
+    string Name { get; }
+
     /// <summary>Returns null when capture is unavailable or ROI invalid.</summary>
     CapturedFrame? TryCapture(in ChartRoi roi);
 }

@@ -21,13 +21,14 @@ Tray: Start / Stop, Restart, Exit. More options under **Advanced** (including La
 
 ## Requirements
 
-- Windows 10 / 11 (x64)
+- Windows 10 version 2004 (20H1) or later / Windows 11 (x64)
 - [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) (install if `CPURacer.exe` complains about a missing runtime)
 
 ## Known issues
 
 - If Taskmgr is elevated and the game is not, W/S may be blocked by UIPI
 - No fallback terrain yet when the CPU chart cannot be captured — keep Performance → CPU open
+- The default External overlay is visible to screenshots and display recording (WGC captures Taskmgr only; borderless when the OS allows). Legacy Advanced → Child mode remains capture-excluded.
 
 ## Developers
 
