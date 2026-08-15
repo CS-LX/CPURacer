@@ -19,7 +19,7 @@
 | BitBlt | True | 930/930 | capture-cvchart-1-bitblt.png |
 - BitBlt analysis: no saturated color found
 | PrintWindow | False |  | draw failed |
-| Screen | True | 930/930 | capture-cvchart-1-screen.png |
+| Screen | True | 930/930 | *(screenshot removed — captured IDE UI, not chart)* |
 - Screen capture analysis: dominant RGB(226,115,129) sat=0.66 samples=1
 - line-scan (top-down) hits=0/40
 - height sample: `-, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -`
@@ -31,7 +31,7 @@
 |---|---|---|---|
 | BitBlt | True | 930/930 | capture-cvchart-2-bitblt.png |
 | PrintWindow | False |  | draw failed |
-| Screen | True | 930/930 | capture-cvchart-2-screen.png |
+| Screen | True | 930/930 | *(screenshot removed — captured IDE UI, not chart)* |
 
 ### Conclusions
 

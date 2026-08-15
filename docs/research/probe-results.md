@@ -104,7 +104,7 @@
 | Target | Method | OK | Size | Notes | File |
 |---|---|---|---|---|---|
 | main HWND | BitBlt | False | 1870x1145 | PrintWindow returned empty/black | capture-main-bitblt.png |
-| main screen CopyFromScreen | ScreenBlit | True | 1870x1145 | non-black=1596/1600 | capture-main-screenblit.png |
+| main screen CopyFromScreen | ScreenBlit | True | 1870x1145 | non-black=1596/1600 | *(screenshot removed — captured IDE UI over Taskmgr)* |
 
 ## 5. Curve / height-field heuristic on screen capture
 
