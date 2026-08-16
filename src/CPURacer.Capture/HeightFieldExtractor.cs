@@ -149,10 +149,21 @@ public sealed class HeightFieldExtractor
                 _accentValid = false;
             }
 
-            return null;
+            // 低占用（曲线贴底被底部 inset 排除）或曲线极淡时不整帧拒绝：
+            // 未检测列以图底为地形，得到一条平地赛道，而不是停留在旧地形。
+            var floorY = inset.Top + plotH - 1;
+            for (var x = 0; x < raw.Length; x++)
+            {
+                if (float.IsNaN(raw[x]))
+                {
+                    raw[x] = floorY;
+                }
+            }
         }
-
-        _accentFailStreak = 0;
+        else
+        {
+            _accentFailStreak = 0;
+        }
 
         var completed = InterpolateMissing(raw);
         var despike = DespikeImpulses(completed, ImpulseThresholdPx);

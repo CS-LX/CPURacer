@@ -351,14 +351,16 @@ public class HeightFieldExtractorTests
     }
 
     [Fact]
-    public void Extract_RejectsFrameWithInsufficientBlueCoverage()
+    public void Extract_LowCoverageFallsBackToFloor()
     {
+        // 低占用：曲线极淡/贴底被 inset 排除时，未检测列以图底为地形，
+        // 而不是整帧拒绝（External WGC 不依赖 BitBlt 合成帧防线）。
         const int w = 200;
         const int h = 100;
         var inset = new PlotInset(5, 8, 5, 8);
         var bgra = MakeFrame(w, h, (x, y) =>
         {
-            // Only a tiny fragment: incomplete composition frame, not a valid contour.
+            // Only a tiny fragment: low-utilization curve fragment.
             if (x is >= 10 and < 20 && y >= 70)
             {
                 return (240, 140, 50);
@@ -367,7 +369,13 @@ public class HeightFieldExtractorTests
             return (18, 18, 18);
         });
 
-        Assert.Null(new HeightFieldExtractor(inset).ExtractBgra(w, h, bgra));
+        var field = new HeightFieldExtractor(inset).ExtractBgra(w, h, bgra);
+        Assert.NotNull(field);
+        var values = field!.YFromTop;
+        Assert.DoesNotContain(values, float.IsNaN);
+        var floor = inset.Top + (h - inset.Top - inset.Bottom) - 1;
+        Assert.True(values[0] >= floor - 1, $"col 0 should be at floor, got {values[0]}");
+        Assert.True(values[10] <= floor - 10, $"col 10 should keep the ridge, got {values[10]}");
     }
 
     [Fact]
