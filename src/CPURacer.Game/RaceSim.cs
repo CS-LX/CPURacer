@@ -366,8 +366,7 @@ public sealed class RaceSim
                         Locale.Culture,
                         Strings.HudFlipRecoverWait,
                         _runDistanceM,
-                        System.Math.Max(0, (int)System.Math.Ceiling(
-                            (FlipRecoverDelayMs - (Environment.TickCount64 - _flipSinceMs)) / 1000.0)))
+                        System.Math.Max(0.0, (FlipRecoverDelayMs - (Environment.TickCount64 - _flipSinceMs)) / 1000.0))
                 : string.Format(Locale.Culture, Strings.HudRacing, _runDistanceM, _sessionBestM);
 
         // TaskmgrPlayer ColorEdge RGB(12,125,187) as BGRA accent defaults.
