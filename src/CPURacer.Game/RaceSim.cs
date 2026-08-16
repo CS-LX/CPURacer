@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using Box2DX.Collision;
 using Box2DX.Common;
 using Box2DX.Dynamics;
@@ -41,6 +42,9 @@ public sealed class RaceSim
     private const float WorldMarginScreens = 0.35f;
     private const int MaxScrollShiftPx = 24;
     private const float ScrollSmooth = 0.25f;
+    /// <summary>跳变前馈：预测更新时刻前开始偏移的提前窗，与入账超时窗（QPC）。</summary>
+    private static readonly TimeSpan JumpLeadWindow = TimeSpan.FromMilliseconds(15);
+    private static readonly TimeSpan JumpTimeoutWindow = TimeSpan.FromMilliseconds(60);
 
     private World? _world;
     private Body? _ground;
@@ -68,6 +72,14 @@ public sealed class RaceSim
     private long _lastScrollSampleMs;
     private float _scrollPxPerSec;
     private double _stepAccumulator;
+
+    // 跳变前馈预测状态（渲染层）：预测更新时刻到达时把车预偏移 Δ，
+    // 滚动实际入账后取消；预测超时未入账则放弃本次偏移。
+    private TimeSpan _nextUpdateTime;
+    private bool _hasPrediction;
+    private float _pendingJumpPx;
+    private float _lastJumpPx;
+    private bool _jumpApplied;
 
     private bool _throttleKey;
     private bool _brakeKey;
@@ -111,6 +123,7 @@ public sealed class RaceSim
         IsRunning = true;
         _lastScrollSampleMs = Environment.TickCount64;
         _scrollPxPerSec = 0;
+        ResetJumpPrediction();
     }
 
     public void Stop()
@@ -128,6 +141,7 @@ public sealed class RaceSim
         _controlsDisabled = false;
         _stepAccumulator = 0;
         _scrollPxPerSec = 0;
+        ResetJumpPrediction();
     }
 
     public void Restart()
@@ -149,6 +163,7 @@ public sealed class RaceSim
         IsRunning = true;
         _lastScrollSampleMs = Environment.TickCount64;
         _scrollPxPerSec = 0;
+        ResetJumpPrediction();
     }
 
     private void ResetRunStats()
@@ -205,6 +220,9 @@ public sealed class RaceSim
         if (shiftPx > 0)
         {
             _scrollOriginPx += shiftPx;
+            _lastJumpPx = shiftPx;
+            // 滚动已入账：取消预偏移，车回到物理正确位置。
+            _jumpApplied = false;
         }
 
         // Lock in-view world columns to the live HF so physics cannot lead/lag the polyline.
@@ -282,7 +300,10 @@ public sealed class RaceSim
         var speedPx = speedMps * PixelsPerMeter;
         var worldXPx = p.X * PixelsPerMeter;
         // Match fit polyline column centers (inset + i + 0.5).
-        var chassisXPx = _insetLeft + (worldXPx - _scrollOriginPx) + 0.5f;
+        // 跳变前馈：预测时刻内车提前 Δ（贴合跳变后背景），入账后自动取消。
+        UpdateJumpPrediction();
+        var renderOriginPx = _scrollOriginPx + (_jumpApplied ? _pendingJumpPx : 0f);
+        var chassisXPx = _insetLeft + (worldXPx - renderOriginPx) + 0.5f;
         var worldYPx = p.Y * PixelsPerMeter;
         var yFromTop = CoordMapper.WorldYToFrameYFromTop(worldYPx, _insetTop, _plotHPx);
         // Idle/game-over copy is owned by App + Localization (centered Figgle prompts).
@@ -658,6 +679,53 @@ public sealed class RaceSim
         samplePxPerSec = System.Math.Clamp(samplePxPerSec, 0f, MaxScrollShiftPx / (float)FixedDt);
         _scrollPxPerSec += (samplePxPerSec - _scrollPxPerSec) * ScrollSmooth;
     }
+
+    /// <summary>外部喂入预测的下次更新时刻（QPC）。Δ 取最近一次实测跳变量。</summary>
+    public void SetPredictedUpdate(TimeSpan nextUpdateTicks)
+    {
+        _nextUpdateTime = nextUpdateTicks;
+        _pendingJumpPx = _lastJumpPx;
+        _hasPrediction = true;
+    }
+
+    /// <summary>清除预测（无有效周期学习时）。</summary>
+    public void ClearPrediction()
+    {
+        _hasPrediction = false;
+        _jumpApplied = false;
+    }
+
+    /// <summary>每帧检查：预测时刻到达则预偏移，超时未入账则放弃。</summary>
+    private void UpdateJumpPrediction()
+    {
+        if (!_hasPrediction)
+        {
+            return;
+        }
+
+        var now = QpcNow();
+        if (!_jumpApplied && now >= _nextUpdateTime - JumpLeadWindow)
+        {
+            _jumpApplied = true;
+        }
+        else if (_jumpApplied && now > _nextUpdateTime + JumpTimeoutWindow)
+        {
+            // 预测超时未入账：取消偏移，避免车持续错位。
+            _jumpApplied = false;
+            _hasPrediction = false;
+        }
+    }
+
+    private void ResetJumpPrediction()
+    {
+        _hasPrediction = false;
+        _jumpApplied = false;
+        _lastJumpPx = 0;
+        _pendingJumpPx = 0;
+    }
+
+    private static TimeSpan QpcNow()
+        => TimeSpan.FromTicks(Stopwatch.GetTimestamp() * TimeSpan.TicksPerSecond / Stopwatch.Frequency);
 
     private static int EstimateScrollShiftPx(float[]? previous, float[]? next, int previousPlotW)
     {

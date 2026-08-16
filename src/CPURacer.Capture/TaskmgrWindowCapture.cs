@@ -14,6 +14,11 @@ public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
 {
     private readonly object _gate = new();
 
+    // 图表更新周期学习：基于 WGC 帧的呈现时间戳（SystemRelativeTime）与 ROI 内容变化。
+    private static readonly TimeSpan MaxUpdateInterval = TimeSpan.FromSeconds(5);
+    private const int UpdateIntervalWindow = 16;
+    private const long ChangeDiffThreshold = 20000;
+
     private CaptureKey? _key;
     private LatestFrame? _latest;
     private CancellationTokenSource? _workerCts;
@@ -22,6 +27,59 @@ public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
     private int _generation;
     private DateTime _nextRetryUtc;
     private bool _disposed;
+
+    private readonly Queue<TimeSpan> _updateIntervals = new();
+    private TimeSpan _lastUpdateTicks;
+    private TimeSpan _updatePeriod;
+    private byte[]? _lastCompareBgra;
+
+    /// <summary>周期学习是否已积累足够样本（≥3 个间隔）。</summary>
+    public bool HasUpdateTiming
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _updateIntervals.Count >= 3;
+            }
+        }
+    }
+
+    /// <summary>估计的图表更新周期（呈现时间基准）。</summary>
+    public TimeSpan UpdatePeriod
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _updatePeriod;
+            }
+        }
+    }
+
+    /// <summary>最近一次更新帧的呈现时间（QPC）。</summary>
+    public TimeSpan LastUpdatePresentTime
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _lastUpdateTicks;
+            }
+        }
+    }
+
+    /// <summary>预测的下次更新时刻（QPC）：上次更新呈现时间 + 周期。</summary>
+    public TimeSpan NextUpdateTime
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _lastUpdateTicks + _updatePeriod;
+            }
+        }
+    }
 
     public string Name => "wgc";
 
@@ -76,6 +134,10 @@ public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
 
         _key = key;
         _latest = null;
+        _updateIntervals.Clear();
+        _lastUpdateTicks = TimeSpan.Zero;
+        _updatePeriod = TimeSpan.Zero;
+        _lastCompareBgra = null;
         var cts = new CancellationTokenSource();
         _workerCts = cts;
         _workerRunning = true;
@@ -110,7 +172,7 @@ public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
                     continue;
                 }
 
-                var (frameW, frameH, frameBgra) = captured.Value;
+                var (frameW, frameH, frameBgra, presentTime) = captured.Value;
                 if (frameW < 8 || frameH < 8)
                 {
                     continue;
@@ -128,6 +190,7 @@ public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
                         && !token.IsCancellationRequested)
                     {
                         _latest = new LatestFrame(key, key.Width, key.Height, bgra);
+                        TrackUpdateTiming(presentTime, bgra, key.Width, key.Height);
                     }
                 }
             }
@@ -151,6 +214,58 @@ public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// 基于 ROI 内容变化识别 Taskmgr 更新帧（跳变），并用呈现时间戳维护周期序列。
+    /// 必须在 _gate 锁内调用。
+    /// </summary>
+    private void TrackUpdateTiming(TimeSpan presentTime, byte[] bgra, int width, int height)
+    {
+        var changed = _lastCompareBgra == null
+            || SampleDiff(_lastCompareBgra, bgra, width, height) > ChangeDiffThreshold;
+        _lastCompareBgra = bgra;
+        if (!changed)
+        {
+            return;
+        }
+
+        if (_lastUpdateTicks > TimeSpan.Zero)
+        {
+            var interval = presentTime - _lastUpdateTicks;
+            if (interval > TimeSpan.Zero && interval < MaxUpdateInterval)
+            {
+                _updateIntervals.Enqueue(interval);
+                if (_updateIntervals.Count > UpdateIntervalWindow)
+                {
+                    _updateIntervals.Dequeue();
+                }
+
+                var sorted = _updateIntervals.OrderBy(i => i).ToArray();
+                _updatePeriod = sorted[sorted.Length / 2];
+            }
+        }
+
+        _lastUpdateTicks = presentTime;
+    }
+
+    /// <summary>抽样比较两帧 ROI 的像素差异（每 16px 一个采样点）。</summary>
+    private static long SampleDiff(byte[] a, byte[] b, int width, int height)
+    {
+        long diff = 0;
+        for (var y = 0; y < height; y += 16)
+        {
+            var rowBase = y * width * 4;
+            for (var x = 0; x < width; x += 16)
+            {
+                var i = rowBase + x * 4;
+                diff += Math.Abs(a[i] - b[i]);
+                diff += Math.Abs(a[i + 1] - b[i + 1]);
+                diff += Math.Abs(a[i + 2] - b[i + 2]);
+            }
+        }
+
+        return diff;
     }
 
     /// <summary>

@@ -488,6 +488,16 @@ public partial class App : Application
         PollDebugToggle();
         TickExternalFrameSafe();
 
+        // 跳变前馈：用捕获层学习的更新周期/相位，预测下次更新时刻喂给 RaceSim。
+        if (_followMode == TrackFollowMode.External && _windowCapture.HasUpdateTiming)
+        {
+            _race.SetPredictedUpdate(_windowCapture.NextUpdateTime);
+        }
+        else
+        {
+            _race.ClearPrediction();
+        }
+
         if (!_raceWanted && !_race.IsRunning && !_race.IsDead)
         {
             UpdateIdleBanners();
