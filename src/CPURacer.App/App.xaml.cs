@@ -503,6 +503,7 @@ public partial class App : Application
             }
 
             _spaceWasDown = idleSpace;
+            RenderExternalNow();
             return;
         }
 
@@ -531,6 +532,7 @@ public partial class App : Application
                 _overlay?.SetCarPose(deadCar);
             }
 
+            RenderExternalNow();
             return;
         }
 
@@ -585,6 +587,17 @@ public partial class App : Application
         if (wasRunning != _race.IsRunning)
         {
             SyncRaceMenu();
+        }
+
+        RenderExternalNow();
+    }
+
+    /// <summary>External 模式：物理步进/提示更新后立即用最新地形重绘，保证画面配对。</summary>
+    private void RenderExternalNow()
+    {
+        if (_followMode == TrackFollowMode.External)
+        {
+            _nativeOverlay?.RenderNow();
         }
     }
 

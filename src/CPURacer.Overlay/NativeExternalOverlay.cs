@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using CPURacer.Capture;
@@ -115,6 +116,28 @@ public sealed class NativeExternalOverlay : IDisposable
         _carPose = pose;
     }
 
+    /// <summary>
+    /// RaceHost 每帧在物理步进后调用：用“最近一次地形 + 同一帧物理结果”重绘。
+    /// 画面刷新统一收敛到此入口，捕获时钟不再直接渲染，避免地形与车位配对错一帧。
+    /// </summary>
+    public void RenderNow()
+    {
+        ThrowIfDisposed();
+        if (!_visible || _disposed)
+        {
+            return;
+        }
+
+        try
+        {
+            RenderFrame();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"External overlay render failed: {ex}");
+        }
+    }
+
     /// <summary>Top-left player line (racing HUD). Idle/game-over use <see cref="CenterPrompt"/>.</summary>
     public string? PlayerBanner { get; set; }
 
@@ -217,7 +240,8 @@ public sealed class NativeExternalOverlay : IDisposable
             CaptureStatus = "cap=occluded";
         }
 
-        RenderFrame();
+        // 渲染不在捕获时钟触发：由 RaceHost 在物理步进后统一 RenderNow，
+        // 保证画面始终是“最新地形 + 同一帧物理结果”的配对，避免错一帧。
     }
 
     private void CreateWindow()
