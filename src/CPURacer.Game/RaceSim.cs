@@ -25,17 +25,17 @@ public sealed class RaceSim
     private const int MaxSubSteps = 4;
 
     private const float ChassisHalfW = 0.55f;
-    private const float ChassisHalfH = 0.18f;
+    private const float ChassisHalfH = 0.14f;
     private const float WheelRadius = 0.22f;
-    private const float WheelOffsetX = 0.42f;
+    private const float WheelOffsetX = 0.48f;
 
     // Pedal ∈ [-1,1]: W ramps up, S ramps down (through 0 into reverse).
     private const float ThrottleRampPerSec = 1.35f;
     // Revolute motor at |pedal|=1 (rad/s, N·m). Negative ω → +X (forward).
     private const float DriveMotorSpeed = 28f;
-    private const float DriveMotorTorque = 95f;
+    private const float DriveMotorTorque = 3f;
     private const float CoastMotorTorque = 0.5f;
-    private const float FrontDriveBlend = 0.85f;
+    private const float FrontDriveBlend = 0.6f;
 
     private const float FlipAngleRad = 1.35f;
     private const int MaxTerrainSegments = 120;
@@ -625,7 +625,7 @@ public sealed class RaceSim
         {
             Radius = WheelRadius,
             Density = 1.1f,
-            Friction = 1.8f,
+            Friction = 1.3f,
             Restitution = 0.0f,
         };
         circle.Filter.GroupIndex = -1;
