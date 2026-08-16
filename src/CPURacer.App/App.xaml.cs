@@ -52,6 +52,7 @@ public partial class App : Application
     private int _trayTipFrame;
     private bool _raceWanted;
     private bool _spaceWasDown;
+    private bool _rollWasDown;
     private TimeSpan _lastRaceTime;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -563,6 +564,15 @@ public partial class App : Application
         }
 
         _spaceWasDown = space;
+
+        // 翻车回正：翻倒超过惩罚时间后按 R 原地回正（RaceSim 内部检查就绪态）。
+        var roll = GameInput.RollResetDown;
+        if (roll && !_rollWasDown)
+        {
+            _race.TryFlipRecover();
+        }
+
+        _rollWasDown = roll;
 
         var wasRunning = _race.IsRunning;
         var throttle = GameInput.ThrottleDown;

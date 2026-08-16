@@ -23,6 +23,8 @@ public static class Strings
     public static string PromptCaptureFail => Get(nameof(PromptCaptureFail));
     public static string HudRacing => Get(nameof(HudRacing));
     public static string HudFlipped => Get(nameof(HudFlipped));
+    public static string HudFlipRecoverWait => Get(nameof(HudFlipRecoverWait));
+    public static string HudFlipRecoverReady => Get(nameof(HudFlipRecoverReady));
     public static string TrayStart => Get(nameof(TrayStart));
     public static string TrayStop => Get(nameof(TrayStop));
     public static string TrayRestart => Get(nameof(TrayRestart));

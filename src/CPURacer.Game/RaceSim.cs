@@ -41,6 +41,10 @@ public sealed class RaceSim
 
     /// <summary>翻车提示阈值：底盘角度超过 90° 视为翻倒（仅提示/车身变色，不禁用油门）。</summary>
     private const float FlipAngleRad = MathF.PI / 2f;
+    /// <summary>翻车解除角：翻倒后角度回到 60° 以下才算回正（滞回，防角度摆动重置计时）。</summary>
+    private const float FlipRecoverClearRad = MathF.PI / 3f;
+    /// <summary>翻车回正惩罚：翻倒持续此时间后才允许按 R 回正（毫秒）。</summary>
+    private const long FlipRecoverDelayMs = 1000;
     private const int MaxTerrainSegments = 120;
     private const float WorldMarginScreens = 0.35f;
     private const int MaxScrollShiftPx = 24;
@@ -108,6 +112,8 @@ public sealed class RaceSim
     private float _pedal;
     private bool _dead;
     private bool _controlsDisabled;
+    /// <summary>翻车开始时刻（TickCount64）；0 = 未翻车。翻倒持续超时后允许 R 回正。</summary>
+    private long _flipSinceMs;
     private float _spawnWorldXPx;
     private float _maxWorldXPx;
     /// <summary>掉出底部时的视口 X（原位置重生用）；-1 表示未记录。</summary>
@@ -196,6 +202,7 @@ public sealed class RaceSim
         _runDistanceM = 0;
         _deathReason = "";
         _respawnViewXPx = -1f;
+        _flipSinceMs = 0;
     }
 
     /// <summary>W = ramp pedal forward, S = ramp pedal backward (through idle into reverse).</summary>
@@ -353,7 +360,14 @@ public sealed class RaceSim
         var hud = _dead
             ? string.Empty
             : _controlsDisabled
-                ? string.Format(Locale.Culture, Strings.HudFlipped, _runDistanceM)
+                ? FlipRecoverReady
+                    ? string.Format(Locale.Culture, Strings.HudFlipRecoverReady, _runDistanceM)
+                    : string.Format(
+                        Locale.Culture,
+                        Strings.HudFlipRecoverWait,
+                        _runDistanceM,
+                        System.Math.Max(0, (int)System.Math.Ceiling(
+                            (FlipRecoverDelayMs - (Environment.TickCount64 - _flipSinceMs)) / 1000.0)))
                 : string.Format(Locale.Culture, Strings.HudRacing, _runDistanceM, _sessionBestM);
 
         // TaskmgrPlayer ColorEdge RGB(12,125,187) as BGRA accent defaults.
@@ -857,7 +871,47 @@ public sealed class RaceSim
             angle += MathF.Tau;
         }
 
-        _controlsDisabled = System.Math.Abs(angle) > FlipAngleRad;
+        // 滞回：90° 触发翻车，60° 才解除——角度小幅摆动（85°~95° 抖动）不会重置回正计时。
+        var flipped = _flipSinceMs > 0
+            ? System.Math.Abs(angle) > FlipRecoverClearRad
+            : System.Math.Abs(angle) > FlipAngleRad;
+        _controlsDisabled = flipped;
+        // 翻车计时：翻倒即开始计回正惩罚，回正（低于解除角）后清零。
+        if (flipped)
+        {
+            if (_flipSinceMs == 0)
+            {
+                _flipSinceMs = Environment.TickCount64;
+            }
+        }
+        else
+        {
+            _flipSinceMs = 0;
+        }
+    }
+
+    /// <summary>翻车回正就绪：翻倒持续超过惩罚时间（供 HUD/输入侧查询）。</summary>
+    public bool FlipRecoverReady
+        => _flipSinceMs > 0 && Environment.TickCount64 - _flipSinceMs >= FlipRecoverDelayMs;
+
+    /// <summary>
+    /// 翻车回正：就绪后原地重生（与掉出底部同一逻辑），保留成绩。
+    /// 用当前视口 X 作为重生点。
+    /// </summary>
+    public void TryFlipRecover()
+    {
+        if (!FlipRecoverReady)
+        {
+            return;
+        }
+
+        if (_chassis is not null)
+        {
+            var pos = _chassis.GetPosition();
+            _respawnViewXPx = (pos.X * PixelsPerMeter) - _scrollOriginPx;
+        }
+
+        RespawnVehicle();
     }
 
     /// <summary>
@@ -885,6 +939,7 @@ public sealed class RaceSim
         _lastScrollSampleMs = Environment.TickCount64;
         _scrollPxPerSec = 0;
         ResetJumpPrediction();
+        _flipSinceMs = 0;
     }
 
     /// <summary>
