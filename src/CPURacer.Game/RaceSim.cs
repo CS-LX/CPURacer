@@ -116,8 +116,8 @@ public sealed class RaceSim
     private long _flipSinceMs;
     private float _spawnWorldXPx;
     private float _maxWorldXPx;
-    /// <summary>掉出底部时的视口 X（原位置重生用）；-1 表示未记录。</summary>
-    private float _respawnViewXPx = -1f;
+    /// <summary>重生视口 X（相对图表左缘，可为负=界外）；NaN 表示未记录（用 22% 兑底）。</summary>
+    private float _respawnViewXPx = float.NaN;
     private float _runDistanceM;
     private float _sessionBestM;
     private string _deathReason = "";
@@ -201,7 +201,7 @@ public sealed class RaceSim
         _maxWorldXPx = _spawnWorldXPx;
         _runDistanceM = 0;
         _deathReason = "";
-        _respawnViewXPx = -1f;
+        _respawnViewXPx = float.NaN;
         _flipSinceMs = 0;
     }
 
@@ -914,9 +914,9 @@ public sealed class RaceSim
     }
 
     /// <summary>
-    /// 底部传送重生：车掉出底部（物理 bug 卡穿地面线）时回到掉落处上方，
+    /// 底部传送重生：车掉出底部（物理 bug 卡穿地面线）或翻车回正时，回到掉落/翻车处上方，
     /// 保留本局距离/成绩——掉下去不是玩家失误，不应判失败。
-    /// 重生位置 = 掉下去时的视口 X（clamp 到图表内），清速度/踏板/预测状态。
+    /// 重生位置 = 记录时的视口 X（可为负，clamp 到左失败线内；未记录则 22%）。
     /// </summary>
     private void RespawnVehicle()
     {
@@ -925,10 +925,11 @@ public sealed class RaceSim
             return;
         }
 
-        var spawnViewXPx = _respawnViewXPx >= 0f
-            ? System.Math.Clamp(_respawnViewXPx, 0f, _plotWPx)
+        // 原地重生：用记录位置（可为负=左边界外，clamp 到失败线内）；未记录则 22%。
+        var spawnViewXPx = !float.IsNaN(_respawnViewXPx)
+            ? System.Math.Clamp(_respawnViewXPx, -LeftFailPx, _plotWPx)
             : _plotWPx * 0.22f;
-        _respawnViewXPx = -1f;
+        _respawnViewXPx = float.NaN;
 
         SpawnVehicleAt(spawnViewXPx);
         _pedal = 0;
