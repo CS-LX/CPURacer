@@ -28,6 +28,8 @@ public sealed class RaceSim
     private const float ChassisHalfH = 0.14f;
     private const float WheelRadius = 0.22f;
     private const float WheelOffsetX = 0.48f;
+    /// <summary>重生/开局时轮子与地形的间隙（米）：太小会让刚体初始重叠被弹飞。</summary>
+    private const float SpawnClearanceM = 0.04f;
 
     // Pedal ∈ [-1,1]: W ramps up, S ramps down (through 0 into reverse).
     private const float ThrottleRampPerSec = 1.35f;
@@ -590,7 +592,10 @@ public sealed class RaceSim
         var spawnXM = spawnXPx / PixelsPerMeter;
         var surfaceYM = SampleSurfaceM(spawnXM);
         // Snug hard-axle spawn: wheel sits on surface; chassis hangs ChassisHalfH above hub.
-        var wheelYM = surfaceYM + WheelRadius + 0.004f;
+        var wheelYM = surfaceYM + WheelRadius + SpawnClearanceM;
+        // 防初始重叠（凹槽/陡坡）：车底轮廓穿入地形则上移直到不重叠，
+        // 物理从“空中小落”开始，避免 Box2D 穿透修复猛弹/卡死。
+        wheelYM = RaiseAboveTerrain(spawnXM, wheelYM);
         var chassisYM = wheelYM + ChassisHalfH;
 
         var cbd = new BodyDef();
@@ -868,6 +873,60 @@ public sealed class RaceSim
         _lastScrollSampleMs = Environment.TickCount64;
         _scrollPxPerSec = 0;
         ResetJumpPrediction();
+    }
+
+    /// <summary>
+    /// 上移轮心直到车底轮廓不再穿入地形（凹槽/陡坡重生时防初始重叠）。
+    /// 每次取最大穿透深度一次上移到位，循环兑底防异常。
+    /// </summary>
+    private float RaiseAboveTerrain(float spawnXM, float wheelYM)
+    {
+        const int maxIter = 8;
+        var y = wheelYM;
+        for (var iter = 0; iter < maxIter; iter++)
+        {
+            var pen = MaxTerrainPenetrationM(spawnXM, y);
+            if (pen <= 0f)
+            {
+                break;
+            }
+
+            y += pen + SpawnClearanceM;
+        }
+
+        return y;
+    }
+
+    /// <summary>车底轮廓关键点相对地形的最大穿入深度（&gt;0 表示穿入）。</summary>
+    private float MaxTerrainPenetrationM(float spawnXM, float wheelYM)
+    {
+        var chassisCenterY = wheelYM + ChassisHalfH;
+        var chassisBottomY = chassisCenterY - ChassisHalfH;
+        var maxPen = 0f;
+
+        // 轮子底部。
+        CheckPoint(spawnXM - WheelOffsetX, wheelYM - WheelRadius);
+        CheckPoint(spawnXM + WheelOffsetX, wheelYM - WheelRadius);
+        // 底盘下沿两端 + 中间采样（跨凹槽时底盘会顶到槽壁）。
+        CheckPoint(spawnXM - ChassisHalfW, chassisBottomY);
+        CheckPoint(spawnXM + ChassisHalfW, chassisBottomY);
+        for (var i = -2; i <= 2; i++)
+        {
+            var x = spawnXM + (ChassisHalfW * i / 2f);
+            CheckPoint(x, chassisBottomY);
+        }
+
+        return maxPen;
+
+        void CheckPoint(float x, float y)
+        {
+            var terrainY = SampleSurfaceM(x);
+            var pen = terrainY - y;
+            if (pen > maxPen)
+            {
+                maxPen = pen;
+            }
+        }
     }
 
     private float SampleSurfaceM(float worldXM)
