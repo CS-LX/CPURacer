@@ -42,6 +42,12 @@ public sealed class RaceSim
     private const float WorldMarginScreens = 0.35f;
     private const int MaxScrollShiftPx = 24;
     private const float ScrollSmooth = 0.25f;
+    /// <summary>左侧：车中心超出图表左边界此量才判失败（整车调出图表区域）。</summary>
+    private const float LeftFailPx = 40f;
+    /// <summary>右侧空气墙：视口右缘外此量的位置（物理垂直墙，随滚动重建跟随）。</summary>
+    private const float RightWallMarginPx = 8f;
+    /// <summary>底部传送线：车中心低于图底此量即重生（须低于最低地形，防正常低谷误触）。</summary>
+    private const float BottomRespawnPx = 24f;
     /// <summary>跳变前馈：预测更新时刻前开始偏移的提前窗，与入账超时窗（QPC）。</summary>
     private static readonly TimeSpan JumpLeadWindow = TimeSpan.FromMilliseconds(32);
     private static readonly TimeSpan JumpTimeoutWindow = TimeSpan.FromMilliseconds(60);
@@ -276,8 +282,13 @@ public sealed class RaceSim
         }
 
         UpdateFlipState();
-        UpdateDistance(_chassis.GetPosition());
-        if (IsOutOfView(_chassis.GetPosition()))
+        var pos = _chassis.GetPosition();
+        UpdateDistance(pos);
+        // 失败/边界：左侧调出图表区域才判失败；顶部允许出去（重力会掉回）；
+        // 右侧为空气墙（物理墙）；底部低于地形即传送重生（多为物理 bug 卡穿，
+        // 不是玩家失误，不判失败且保留本局距离/成绩）。
+        var viewXPx = (pos.X * PixelsPerMeter) - _scrollOriginPx;
+        if (viewXPx < -LeftFailPx)
         {
             _dead = true;
             IsRunning = false;
@@ -288,6 +299,10 @@ public sealed class RaceSim
             }
 
             SetWheelMotors(0f, 0f, 0f, 0f);
+        }
+        else if (pos.Y * PixelsPerMeter < -BottomRespawnPx)
+        {
+            RespawnVehicle();
         }
     }
 
@@ -538,6 +553,10 @@ public sealed class RaceSim
         var x0 = _worldXPx[0] / PixelsPerMeter;
         var x1 = _worldXPx[^1] / PixelsPerMeter;
         AddEdge(x0, -1.5f, x1, -1.5f, 0.3f);
+
+        // 右侧空气墙：防止加速冲出视口右缘（位置随滚动重建更新）。
+        var wallX = (_scrollOriginPx + _plotWPx + RightWallMarginPx) / PixelsPerMeter;
+        AddEdge(wallX, -1.5f, wallX, _plotHM + 1f, 0.1f);
 
         _chassis?.WakeUp();
         _wheelBack?.WakeUp();
@@ -823,15 +842,27 @@ public sealed class RaceSim
         _controlsDisabled = System.Math.Abs(angle) > FlipAngleRad;
     }
 
-    private bool IsOutOfView(Vec2 centerM)
+    /// <summary>
+    /// 底部传送重生：车掉出底部（物理 bug 卡穿地面线）时回到当前地形上方，
+    /// 保留本局距离/成绩——掉下去不是玩家失误，不应判失败。
+    /// 重生位置同开局（视口 22% 处），清速度/踏板/预测状态。
+    /// </summary>
+    private void RespawnVehicle()
     {
-        const float marginPx = 12f;
-        var viewXPx = (centerM.X * PixelsPerMeter) - _scrollOriginPx;
-        var yPx = centerM.Y * PixelsPerMeter;
-        return viewXPx < -marginPx
-               || viewXPx > _plotWPx + marginPx
-               || yPx < -marginPx
-               || yPx > _plotHPx + marginPx * 4;
+        if (_world is null || _worldXPx.Count < 2 || _plotWPx < 16)
+        {
+            return;
+        }
+
+        DestroyVehicle();
+        SpawnVehicle();
+        _pedal = 0;
+        _dead = false;
+        _controlsDisabled = false;
+        _stepAccumulator = 0;
+        _lastScrollSampleMs = Environment.TickCount64;
+        _scrollPxPerSec = 0;
+        ResetJumpPrediction();
     }
 
     private float SampleSurfaceM(float worldXM)
