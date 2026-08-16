@@ -37,7 +37,8 @@ public sealed class RaceSim
     private const float CoastMotorTorque = 0.5f;
     private const float FrontDriveBlend = 0.6f;
 
-    private const float FlipAngleRad = 1.35f;
+    /// <summary>翻车提示阈值：底盘角度超过 90° 视为翻倒（仅提示/车身变色，不禁用油门）。</summary>
+    private const float FlipAngleRad = MathF.PI / 2f;
     private const int MaxTerrainSegments = 120;
     private const float WorldMarginScreens = 0.35f;
     private const int MaxScrollShiftPx = 24;
@@ -649,7 +650,7 @@ public sealed class RaceSim
 
     private void ApplyDrive(float dt)
     {
-        if (_controlsDisabled || _dead || _chassis is null)
+        if (_dead || _chassis is null)
         {
             _pedal = 0f;
             SetWheelMotors(0f, 0f, CoastMotorTorque, CoastMotorTorque);
@@ -821,6 +822,10 @@ public sealed class RaceSim
         return bestShift;
     }
 
+    /// <summary>
+    /// 翻车状态判定：底盘角度超过 90° 视为翻倒，仅用于提示（HUD 文案 + 车身变色），
+    /// 不禁用油门（油门逻辑不再依赖 _controlsDisabled）。
+    /// </summary>
     private void UpdateFlipState()
     {
         if (_chassis is null)
