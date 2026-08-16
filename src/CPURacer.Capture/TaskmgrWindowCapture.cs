@@ -219,6 +219,11 @@ public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
     /// <summary>
     /// 基于 ROI 内容变化识别 Taskmgr 更新帧（跳变），并用呈现时间戳维护周期序列。
     /// 必须在 _gate 锁内调用。
+    ///
+    /// 现状（2026-08 诊断）：Taskmgr CPU 图约 1000ms 跳变一次（±2% 波动），
+    /// 中位数估计可靠；每次跳变 Δ≈24px。注意：这里在 worker 线程更新相位
+    /// （_lastUpdateTicks），比 UI 线程处理该帧的滚动入账快一个循环，
+    /// 是 RaceSim 预偏移偶发漏过本次跳变的机制之一（详见 RaceSim 注释）。
     /// </summary>
     private void TrackUpdateTiming(TimeSpan presentTime, byte[] bgra, int width, int height)
     {
@@ -243,6 +248,9 @@ public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
 
                 var sorted = _updateIntervals.OrderBy(i => i).ToArray();
                 _updatePeriod = sorted[sorted.Length / 2];
+                // 诊断：更新间隔与当前中位数（周期估计稳定性）。
+                DiagLog.Write(
+                    $"upd: interval={interval.TotalMilliseconds:F0}ms median={_updatePeriod.TotalMilliseconds:F0}ms");
             }
         }
 

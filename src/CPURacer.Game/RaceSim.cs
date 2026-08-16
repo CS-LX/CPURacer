@@ -75,6 +75,18 @@ public sealed class RaceSim
 
     // 跳变前馈预测状态（渲染层）：预测更新时刻到达时把车预偏移 Δ，
     // 滚动实际入账后取消；预测超时未入账则放弃本次偏移。
+    //
+    // 现状（2026-08 诊断日志 %TEMP%\CPURacer-diag.log）：
+    // - Taskmgr 采样周期极稳（1000ms ±2%，捕获层中位数估计），跳变量 Δ≈24px。
+    // - 命中率约 85%（jump: preApplied=True）：跳变瞬间车与背景同步，零延迟。
+    // - 未命中 ~15% 的机制：
+    //   1) 捕获 worker 更新相位（_lastUpdateTicks）比 UI 滚动入账快一个循环，
+    //      _nextUpdateTime 偶尔已指向下下次跳变，预偏移漏过本次（err≈-966ms 簇）；
+    //   2) EstimateScrollShiftPx 保守阈值（bestErr > baseline*0.88 判 0）
+    //      在跳变帧（整图左移 24px + 曲线形状变化）偶发漏检，滚动入账延迟。
+    // - 自愈：错过一次后，下一次 SetPredictedUpdate 基于新相位立即恢复命中。
+    // - 若再优化：让相位来源（_lastUpdateTicks）与滚动入账基于同一帧（数据流重构），
+    //   可消除 1) 的错位；放宽滚动检测阈值可减少 2)。两者收益均为边际。
     private TimeSpan _nextUpdateTime;
     private bool _hasPrediction;
     private float _pendingJumpPx;
@@ -221,8 +233,16 @@ public sealed class RaceSim
         {
             _scrollOriginPx += shiftPx;
             _lastJumpPx = shiftPx;
+            // 诊断：预偏移是否已生效（预测命中率）、入账相对预测时刻的偏差。
+            var appliedBefore = _jumpApplied;
             // 滚动已入账：取消预偏移，车回到物理正确位置。
             _jumpApplied = false;
+            if (_hasPrediction)
+            {
+                var errMs = (QpcNow() - _nextUpdateTime).TotalMilliseconds;
+                DiagLog.Write(
+                    $"jump: preApplied={appliedBefore} err={errMs:F0}ms delta={shiftPx}px");
+            }
         }
 
         // Lock in-view world columns to the live HF so physics cannot lead/lag the polyline.
