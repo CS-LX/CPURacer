@@ -110,6 +110,8 @@ public sealed class RaceSim
     private bool _controlsDisabled;
     private float _spawnWorldXPx;
     private float _maxWorldXPx;
+    /// <summary>掉出底部时的视口 X（原位置重生用）；-1 表示未记录。</summary>
+    private float _respawnViewXPx = -1f;
     private float _runDistanceM;
     private float _sessionBestM;
     private string _deathReason = "";
@@ -193,6 +195,7 @@ public sealed class RaceSim
         _maxWorldXPx = _spawnWorldXPx;
         _runDistanceM = 0;
         _deathReason = "";
+        _respawnViewXPx = -1f;
     }
 
     /// <summary>W = ramp pedal forward, S = ramp pedal backward (through idle into reverse).</summary>
@@ -305,6 +308,8 @@ public sealed class RaceSim
         }
         else if (pos.Y * PixelsPerMeter < -BottomRespawnPx)
         {
+            // 记录掉下去时的视口 X，原地重生（不回到 22%）。
+            _respawnViewXPx = viewXPx;
             RespawnVehicle();
         }
     }
@@ -579,7 +584,10 @@ public sealed class RaceSim
         _ground.CreateFixture(edge);
     }
 
-    private void SpawnVehicle()
+    private void SpawnVehicle() => SpawnVehicleAt(_plotWPx * 0.22f);
+
+    /// <summary>在指定视口 X（相对图表左缘）生成车辆，并抬升到不重叠的安全高度。</summary>
+    private void SpawnVehicleAt(float spawnViewXPx)
     {
         if (_world is null || _worldXPx.Count < 2 || _plotWPx < 16)
         {
@@ -588,7 +596,7 @@ public sealed class RaceSim
 
         DestroyVehicle();
 
-        var spawnXPx = _scrollOriginPx + (_plotWPx * 0.22f);
+        var spawnXPx = _scrollOriginPx + spawnViewXPx;
         var spawnXM = spawnXPx / PixelsPerMeter;
         var surfaceYM = SampleSurfaceM(spawnXM);
         // Snug hard-axle spawn: wheel sits on surface; chassis hangs ChassisHalfH above hub.
@@ -853,9 +861,9 @@ public sealed class RaceSim
     }
 
     /// <summary>
-    /// 底部传送重生：车掉出底部（物理 bug 卡穿地面线）时回到当前地形上方，
+    /// 底部传送重生：车掉出底部（物理 bug 卡穿地面线）时回到掉落处上方，
     /// 保留本局距离/成绩——掉下去不是玩家失误，不应判失败。
-    /// 重生位置同开局（视口 22% 处），清速度/踏板/预测状态。
+    /// 重生位置 = 掉下去时的视口 X（clamp 到图表内），清速度/踏板/预测状态。
     /// </summary>
     private void RespawnVehicle()
     {
@@ -864,8 +872,12 @@ public sealed class RaceSim
             return;
         }
 
-        DestroyVehicle();
-        SpawnVehicle();
+        var spawnViewXPx = _respawnViewXPx >= 0f
+            ? System.Math.Clamp(_respawnViewXPx, 0f, _plotWPx)
+            : _plotWPx * 0.22f;
+        _respawnViewXPx = -1f;
+
+        SpawnVehicleAt(spawnViewXPx);
         _pedal = 0;
         _dead = false;
         _controlsDisabled = false;
