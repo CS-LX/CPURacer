@@ -64,6 +64,12 @@ public sealed class HeightFieldExtractor
     /// <summary>Reject incomplete composition frames instead of drawing a fallback plateau.</summary>
     private const float MinReliableCoverage = 0.25f;
 
+    /// <summary>
+    /// 空间连续搜索窗口：相邻列峰值位移超出此值视为脱靶，退化为全列扫描。
+    /// Taskmgr 曲线相邻列高度差通常远小于此值，命中率高且避免错误传播。
+    /// </summary>
+    private const int RidgeWindowPx = 32;
+
     // 动态 accent 识别：自举前评分不假设色相（便于识别任意主题曲线色）；
     // 自举后按目标色准入并平滑跟踪主题/强调色变化。
     private const float AccentAdaptRate = 0.10f;
@@ -110,19 +116,35 @@ public sealed class HeightFieldExtractor
         long accentB = 0;
         long accentG = 0;
         long accentR = 0;
+        var yTop = inset.Top;
+        var yBottom = inset.Top + plotH - 1;
+        // 上一列峰值 Y（空间连续引导）；首列或脱靶时全列扫描兜底。
+        var lastRidgeY = float.NaN;
         for (var x = 0; x < plotW; x++)
         {
             var fx = inset.Left + x;
-            if (TrySampleColumnRidge(
-                    frame,
-                    fx,
-                    inset.Top,
-                    inset.Top + plotH - 1,
-                    out var y,
-                    out var b,
-                    out var g,
-                    out var r,
-                    out var score))
+            var ok = false;
+            float y = 0;
+            byte b = 0;
+            byte g = 0;
+            byte r = 0;
+            var score = 0;
+
+            if (!float.IsNaN(lastRidgeY))
+            {
+                // 相邻列连续：在上一列峰值附近 ±RidgeWindowPx 搜索。
+                var wTop = Math.Max(yTop, (int)lastRidgeY - RidgeWindowPx);
+                var wBottom = Math.Min(yBottom, (int)lastRidgeY + RidgeWindowPx);
+                ok = TrySampleColumnRidge(frame, fx, wTop, wBottom, out y, out b, out g, out r, out score);
+            }
+
+            if (!ok)
+            {
+                // 首列或窗口脱靶（陡坡/突变）：全列扫描兜底。
+                ok = TrySampleColumnRidge(frame, fx, yTop, yBottom, out y, out b, out g, out r, out score);
+            }
+
+            if (ok)
             {
                 raw[x] = y;
                 detected++;
@@ -130,10 +152,12 @@ public sealed class HeightFieldExtractor
                 accentB += (long)b * score;
                 accentG += (long)g * score;
                 accentR += (long)r * score;
+                lastRidgeY = y;
             }
             else
             {
                 raw[x] = float.NaN;
+                // 保留上一有效位置：短暂缺失列后仍可继续窗口引导。
             }
         }
 
