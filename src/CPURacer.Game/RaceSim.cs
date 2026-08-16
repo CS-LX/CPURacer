@@ -43,7 +43,7 @@ public sealed class RaceSim
     private const int MaxScrollShiftPx = 24;
     private const float ScrollSmooth = 0.25f;
     /// <summary>跳变前馈：预测更新时刻前开始偏移的提前窗，与入账超时窗（QPC）。</summary>
-    private static readonly TimeSpan JumpLeadWindow = TimeSpan.FromMilliseconds(15);
+    private static readonly TimeSpan JumpLeadWindow = TimeSpan.FromMilliseconds(32);
     private static readonly TimeSpan JumpTimeoutWindow = TimeSpan.FromMilliseconds(60);
 
     private World? _world;
