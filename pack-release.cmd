@@ -4,13 +4,13 @@ cd /d "%~dp0"
 
 rem Usage:
 rem   pack-release.cmd                 → version from default, arch x64
-rem   pack-release.cmd 1.1.0.0         → version + x64
-rem   pack-release.cmd 1.1.0.0 x86     → version + x86
+rem   pack-release.cmd 1.2.0.0         → version + x64
+rem   pack-release.cmd 1.2.0.0 x86     → version + x86
 rem   pack-release.cmd x86             → default version + x86
 rem Env: PACK_NAME overrides zip stem; PACK_ARCH overrides arch.
 
 set "CONFIG=Release"
-set "VER=1.1.0.0"
+set "VER=1.2.0.0"
 set "ARCH=x64"
 if defined PACK_ARCH set "ARCH=%PACK_ARCH%"
 

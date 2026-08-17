@@ -33,7 +33,7 @@
 
 ```powershell
 .\pack-release.cmd              # 默认版本 + x64
-.\pack-release.cmd 1.1.0.0 x86  # 指定版本 + 架构
+.\pack-release.cmd 1.2.0.0 x86  # 指定版本 + 架构
 # CI：PACK_NAME / PACK_ARCH 可覆盖
 ```
 
@@ -81,6 +81,7 @@ src/
 | Figgle 开局/结束 + en/zh-Hans | ✅（2026-08-09） |
 | External Overlay 可截图 / 录屏 | ✅（2026-08-10；自研 WGC + ExtendedFrame；最大化/无黄边已验收；发版 v1.1.0.0） |
 | PR #2 体验/并钟（RaceHost 单环） | ✅（2026-08-17 手工：延迟更好、托盘往返无回归 → 保留） |
+| 双架构构建 + 发版 v1.2.0.0 | ✅（x64 / x86 并行；含 PR #2 体验改进） |
 
 ## 文档与参考
 
