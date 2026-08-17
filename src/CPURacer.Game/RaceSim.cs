@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using Box2DX.Collision;
 using Box2DX.Common;
 using Box2DX.Dynamics;
@@ -24,23 +25,39 @@ public sealed class RaceSim
     private const int MaxSubSteps = 4;
 
     private const float ChassisHalfW = 0.55f;
-    private const float ChassisHalfH = 0.18f;
+    private const float ChassisHalfH = 0.14f;
     private const float WheelRadius = 0.22f;
-    private const float WheelOffsetX = 0.42f;
+    private const float WheelOffsetX = 0.48f;
+    /// <summary>重生/开局时轮子与地形的间隙（米）：太小会让刚体初始重叠被弹飞。</summary>
+    private const float SpawnClearanceM = 0.04f;
 
     // Pedal ∈ [-1,1]: W ramps up, S ramps down (through 0 into reverse).
     private const float ThrottleRampPerSec = 1.35f;
     // Revolute motor at |pedal|=1 (rad/s, N·m). Negative ω → +X (forward).
     private const float DriveMotorSpeed = 28f;
-    private const float DriveMotorTorque = 95f;
+    private const float DriveMotorTorque = 3f;
     private const float CoastMotorTorque = 0.5f;
-    private const float FrontDriveBlend = 0.85f;
+    private const float FrontDriveBlend = 0.6f;
 
-    private const float FlipAngleRad = 1.35f;
+    /// <summary>翻车提示阈值：底盘角度超过 90° 视为翻倒（仅提示/车身变色，不禁用油门）。</summary>
+    private const float FlipAngleRad = MathF.PI / 2f;
+    /// <summary>翻车解除角：翻倒后角度回到 60° 以下才算回正（滞回，防角度摆动重置计时）。</summary>
+    private const float FlipRecoverClearRad = MathF.PI / 3f;
+    /// <summary>翻车回正惩罚：翻倒持续此时间后才允许按 R 回正（毫秒）。</summary>
+    private const long FlipRecoverDelayMs = 1000;
     private const int MaxTerrainSegments = 120;
     private const float WorldMarginScreens = 0.35f;
     private const int MaxScrollShiftPx = 24;
     private const float ScrollSmooth = 0.25f;
+    /// <summary>左侧：车中心超出图表左边界此量才判失败（整车调出图表区域）。</summary>
+    private const float LeftFailPx = 40f;
+    /// <summary>右侧空气墙：视口右缘外此量的位置（物理垂直墙，随滚动重建跟随）。</summary>
+    private const float RightWallMarginPx = 8f;
+    /// <summary>底部传送线：车中心低于图底此量即重生（须低于最低地形，防正常低谷误触）。</summary>
+    private const float BottomRespawnPx = 24f;
+    /// <summary>跳变前馈：预测更新时刻前开始偏移的提前窗，与入账超时窗（QPC）。</summary>
+    private static readonly TimeSpan JumpLeadWindow = TimeSpan.FromMilliseconds(32);
+    private static readonly TimeSpan JumpTimeoutWindow = TimeSpan.FromMilliseconds(60);
 
     private World? _world;
     private Body? _ground;
@@ -69,14 +86,38 @@ public sealed class RaceSim
     private float _scrollPxPerSec;
     private double _stepAccumulator;
 
+    // 跳变前馈预测状态（渲染层）：预测更新时刻到达时把车预偏移 Δ，
+    // 滚动实际入账后取消；预测超时未入账则放弃本次偏移。
+    //
+    // 现状（2026-08 诊断日志 %TEMP%\CPURacer-diag.log）：
+    // - Taskmgr 采样周期极稳（1000ms ±2%，捕获层中位数估计），跳变量 Δ≈24px。
+    // - 命中率约 85%（jump: preApplied=True）：跳变瞬间车与背景同步，零延迟。
+    // - 未命中 ~15% 的机制：
+    //   1) 捕获 worker 更新相位（_lastUpdateTicks）比 UI 滚动入账快一个循环，
+    //      _nextUpdateTime 偶尔已指向下下次跳变，预偏移漏过本次（err≈-966ms 簇）；
+    //   2) EstimateScrollShiftPx 保守阈值（bestErr > baseline*0.88 判 0）
+    //      在跳变帧（整图左移 24px + 曲线形状变化）偶发漏检，滚动入账延迟。
+    // - 自愈：错过一次后，下一次 SetPredictedUpdate 基于新相位立即恢复命中。
+    // - 若再优化：让相位来源（_lastUpdateTicks）与滚动入账基于同一帧（数据流重构），
+    //   可消除 1) 的错位；放宽滚动检测阈值可减少 2)。两者收益均为边际。
+    private TimeSpan _nextUpdateTime;
+    private bool _hasPrediction;
+    private float _pendingJumpPx;
+    private float _lastJumpPx;
+    private bool _jumpApplied;
+
     private bool _throttleKey;
     private bool _brakeKey;
     /// <summary>Continuous pedal in [-1, 1]. +1 full forward, -1 full reverse.</summary>
     private float _pedal;
     private bool _dead;
     private bool _controlsDisabled;
+    /// <summary>翻车开始时刻（TickCount64）；0 = 未翻车。翻倒持续超时后允许 R 回正。</summary>
+    private long _flipSinceMs;
     private float _spawnWorldXPx;
     private float _maxWorldXPx;
+    /// <summary>重生视口 X（相对图表左缘，可为负=界外）；NaN 表示未记录（用 22% 兑底）。</summary>
+    private float _respawnViewXPx = float.NaN;
     private float _runDistanceM;
     private float _sessionBestM;
     private string _deathReason = "";
@@ -111,6 +152,7 @@ public sealed class RaceSim
         IsRunning = true;
         _lastScrollSampleMs = Environment.TickCount64;
         _scrollPxPerSec = 0;
+        ResetJumpPrediction();
     }
 
     public void Stop()
@@ -128,6 +170,7 @@ public sealed class RaceSim
         _controlsDisabled = false;
         _stepAccumulator = 0;
         _scrollPxPerSec = 0;
+        ResetJumpPrediction();
     }
 
     public void Restart()
@@ -149,6 +192,7 @@ public sealed class RaceSim
         IsRunning = true;
         _lastScrollSampleMs = Environment.TickCount64;
         _scrollPxPerSec = 0;
+        ResetJumpPrediction();
     }
 
     private void ResetRunStats()
@@ -157,6 +201,8 @@ public sealed class RaceSim
         _maxWorldXPx = _spawnWorldXPx;
         _runDistanceM = 0;
         _deathReason = "";
+        _respawnViewXPx = float.NaN;
+        _flipSinceMs = 0;
     }
 
     /// <summary>W = ramp pedal forward, S = ramp pedal backward (through idle into reverse).</summary>
@@ -205,6 +251,17 @@ public sealed class RaceSim
         if (shiftPx > 0)
         {
             _scrollOriginPx += shiftPx;
+            _lastJumpPx = shiftPx;
+            // 诊断：预偏移是否已生效（预测命中率）、入账相对预测时刻的偏差。
+            var appliedBefore = _jumpApplied;
+            // 滚动已入账：取消预偏移，车回到物理正确位置。
+            _jumpApplied = false;
+            if (_hasPrediction)
+            {
+                var errMs = (QpcNow() - _nextUpdateTime).TotalMilliseconds;
+                DiagLog.Write(
+                    $"jump: preApplied={appliedBefore} err={errMs:F0}ms delta={shiftPx}px");
+            }
         }
 
         // Lock in-view world columns to the live HF so physics cannot lead/lag the polyline.
@@ -238,8 +295,13 @@ public sealed class RaceSim
         }
 
         UpdateFlipState();
-        UpdateDistance(_chassis.GetPosition());
-        if (IsOutOfView(_chassis.GetPosition()))
+        var pos = _chassis.GetPosition();
+        UpdateDistance(pos);
+        // 失败/边界：左侧调出图表区域才判失败；顶部允许出去（重力会掉回）；
+        // 右侧为空气墙（物理墙）；底部低于地形即传送重生（多为物理 bug 卡穿，
+        // 不是玩家失误，不判失败且保留本局距离/成绩）。
+        var viewXPx = (pos.X * PixelsPerMeter) - _scrollOriginPx;
+        if (viewXPx < -LeftFailPx)
         {
             _dead = true;
             IsRunning = false;
@@ -250,6 +312,12 @@ public sealed class RaceSim
             }
 
             SetWheelMotors(0f, 0f, 0f, 0f);
+        }
+        else if (pos.Y * PixelsPerMeter < -BottomRespawnPx)
+        {
+            // 记录掉下去时的视口 X，原地重生（不回到 22%）。
+            _respawnViewXPx = viewXPx;
+            RespawnVehicle();
         }
     }
 
@@ -282,14 +350,23 @@ public sealed class RaceSim
         var speedPx = speedMps * PixelsPerMeter;
         var worldXPx = p.X * PixelsPerMeter;
         // Match fit polyline column centers (inset + i + 0.5).
-        var chassisXPx = _insetLeft + (worldXPx - _scrollOriginPx) + 0.5f;
+        // 跳变前馈：预测时刻内车提前 Δ（贴合跳变后背景），入账后自动取消。
+        UpdateJumpPrediction();
+        var renderOriginPx = _scrollOriginPx + (_jumpApplied ? _pendingJumpPx : 0f);
+        var chassisXPx = _insetLeft + (worldXPx - renderOriginPx) + 0.5f;
         var worldYPx = p.Y * PixelsPerMeter;
         var yFromTop = CoordMapper.WorldYToFrameYFromTop(worldYPx, _insetTop, _plotHPx);
         // Idle/game-over copy is owned by App + Localization (centered Figgle prompts).
         var hud = _dead
             ? string.Empty
             : _controlsDisabled
-                ? string.Format(Locale.Culture, Strings.HudFlipped, _runDistanceM)
+                ? FlipRecoverReady
+                    ? string.Format(Locale.Culture, Strings.HudFlipRecoverReady, _runDistanceM)
+                    : string.Format(
+                        Locale.Culture,
+                        Strings.HudFlipRecoverWait,
+                        _runDistanceM,
+                        System.Math.Max(0.0, (FlipRecoverDelayMs - (Environment.TickCount64 - _flipSinceMs)) / 1000.0))
                 : string.Format(Locale.Culture, Strings.HudRacing, _runDistanceM, _sessionBestM);
 
         // TaskmgrPlayer ColorEdge RGB(12,125,187) as BGRA accent defaults.
@@ -498,6 +575,10 @@ public sealed class RaceSim
         var x1 = _worldXPx[^1] / PixelsPerMeter;
         AddEdge(x0, -1.5f, x1, -1.5f, 0.3f);
 
+        // 右侧空气墙：防止加速冲出视口右缘（位置随滚动重建更新）。
+        var wallX = (_scrollOriginPx + _plotWPx + RightWallMarginPx) / PixelsPerMeter;
+        AddEdge(wallX, -1.5f, wallX, _plotHM + 1f, 0.1f);
+
         _chassis?.WakeUp();
         _wheelBack?.WakeUp();
         _wheelFront?.WakeUp();
@@ -516,7 +597,10 @@ public sealed class RaceSim
         _ground.CreateFixture(edge);
     }
 
-    private void SpawnVehicle()
+    private void SpawnVehicle() => SpawnVehicleAt(_plotWPx * 0.22f);
+
+    /// <summary>在指定视口 X（相对图表左缘）生成车辆，并抬升到不重叠的安全高度。</summary>
+    private void SpawnVehicleAt(float spawnViewXPx)
     {
         if (_world is null || _worldXPx.Count < 2 || _plotWPx < 16)
         {
@@ -525,11 +609,14 @@ public sealed class RaceSim
 
         DestroyVehicle();
 
-        var spawnXPx = _scrollOriginPx + (_plotWPx * 0.22f);
+        var spawnXPx = _scrollOriginPx + spawnViewXPx;
         var spawnXM = spawnXPx / PixelsPerMeter;
         var surfaceYM = SampleSurfaceM(spawnXM);
         // Snug hard-axle spawn: wheel sits on surface; chassis hangs ChassisHalfH above hub.
-        var wheelYM = surfaceYM + WheelRadius + 0.004f;
+        var wheelYM = surfaceYM + WheelRadius + SpawnClearanceM;
+        // 防初始重叠（凹槽/陡坡）：车底轮廓穿入地形则上移直到不重叠，
+        // 物理从“空中小落”开始，避免 Box2D 穿透修复猛弹/卡死。
+        wheelYM = RaiseAboveTerrain(spawnXM, wheelYM);
         var chassisYM = wheelYM + ChassisHalfH;
 
         var cbd = new BodyDef();
@@ -565,7 +652,7 @@ public sealed class RaceSim
         {
             Radius = WheelRadius,
             Density = 1.1f,
-            Friction = 1.8f,
+            Friction = 1.3f,
             Restitution = 0.0f,
         };
         circle.Filter.GroupIndex = -1;
@@ -589,7 +676,7 @@ public sealed class RaceSim
 
     private void ApplyDrive(float dt)
     {
-        if (_controlsDisabled || _dead || _chassis is null)
+        if (_dead || _chassis is null)
         {
             _pedal = 0f;
             SetWheelMotors(0f, 0f, CoastMotorTorque, CoastMotorTorque);
@@ -659,6 +746,53 @@ public sealed class RaceSim
         _scrollPxPerSec += (samplePxPerSec - _scrollPxPerSec) * ScrollSmooth;
     }
 
+    /// <summary>外部喂入预测的下次更新时刻（QPC）。Δ 取最近一次实测跳变量。</summary>
+    public void SetPredictedUpdate(TimeSpan nextUpdateTicks)
+    {
+        _nextUpdateTime = nextUpdateTicks;
+        _pendingJumpPx = _lastJumpPx;
+        _hasPrediction = true;
+    }
+
+    /// <summary>清除预测（无有效周期学习时）。</summary>
+    public void ClearPrediction()
+    {
+        _hasPrediction = false;
+        _jumpApplied = false;
+    }
+
+    /// <summary>每帧检查：预测时刻到达则预偏移，超时未入账则放弃。</summary>
+    private void UpdateJumpPrediction()
+    {
+        if (!_hasPrediction)
+        {
+            return;
+        }
+
+        var now = QpcNow();
+        if (!_jumpApplied && now >= _nextUpdateTime - JumpLeadWindow)
+        {
+            _jumpApplied = true;
+        }
+        else if (_jumpApplied && now > _nextUpdateTime + JumpTimeoutWindow)
+        {
+            // 预测超时未入账：取消偏移，避免车持续错位。
+            _jumpApplied = false;
+            _hasPrediction = false;
+        }
+    }
+
+    private void ResetJumpPrediction()
+    {
+        _hasPrediction = false;
+        _jumpApplied = false;
+        _lastJumpPx = 0;
+        _pendingJumpPx = 0;
+    }
+
+    private static TimeSpan QpcNow()
+        => TimeSpan.FromTicks(Stopwatch.GetTimestamp() * TimeSpan.TicksPerSecond / Stopwatch.Frequency);
+
     private static int EstimateScrollShiftPx(float[]? previous, float[]? next, int previousPlotW)
     {
         if (previous is null
@@ -714,6 +848,10 @@ public sealed class RaceSim
         return bestShift;
     }
 
+    /// <summary>
+    /// 翻车状态判定：底盘角度超过 90° 视为翻倒，仅用于提示（HUD 文案 + 车身变色），
+    /// 不禁用油门（油门逻辑不再依赖 _controlsDisabled）。
+    /// </summary>
     private void UpdateFlipState()
     {
         if (_chassis is null)
@@ -732,18 +870,130 @@ public sealed class RaceSim
             angle += MathF.Tau;
         }
 
-        _controlsDisabled = System.Math.Abs(angle) > FlipAngleRad;
+        // 滞回：90° 触发翻车，60° 才解除——角度小幅摆动（85°~95° 抖动）不会重置回正计时。
+        var flipped = _flipSinceMs > 0
+            ? System.Math.Abs(angle) > FlipRecoverClearRad
+            : System.Math.Abs(angle) > FlipAngleRad;
+        _controlsDisabled = flipped;
+        // 翻车计时：翻倒即开始计回正惩罚，回正（低于解除角）后清零。
+        if (flipped)
+        {
+            if (_flipSinceMs == 0)
+            {
+                _flipSinceMs = Environment.TickCount64;
+            }
+        }
+        else
+        {
+            _flipSinceMs = 0;
+        }
     }
 
-    private bool IsOutOfView(Vec2 centerM)
+    /// <summary>翻车回正就绪：翻倒持续超过惩罚时间（供 HUD/输入侧查询）。</summary>
+    public bool FlipRecoverReady
+        => _flipSinceMs > 0 && Environment.TickCount64 - _flipSinceMs >= FlipRecoverDelayMs;
+
+    /// <summary>
+    /// 翻车回正：就绪后原地重生（与掉出底部同一逻辑），保留成绩。
+    /// 用当前视口 X 作为重生点。
+    /// </summary>
+    public void TryFlipRecover()
     {
-        const float marginPx = 12f;
-        var viewXPx = (centerM.X * PixelsPerMeter) - _scrollOriginPx;
-        var yPx = centerM.Y * PixelsPerMeter;
-        return viewXPx < -marginPx
-               || viewXPx > _plotWPx + marginPx
-               || yPx < -marginPx
-               || yPx > _plotHPx + marginPx * 4;
+        if (!FlipRecoverReady)
+        {
+            return;
+        }
+
+        if (_chassis is not null)
+        {
+            var pos = _chassis.GetPosition();
+            _respawnViewXPx = (pos.X * PixelsPerMeter) - _scrollOriginPx;
+        }
+
+        RespawnVehicle();
+    }
+
+    /// <summary>
+    /// 底部传送重生：车掉出底部（物理 bug 卡穿地面线）或翻车回正时，回到掉落/翻车处上方，
+    /// 保留本局距离/成绩——掉下去不是玩家失误，不应判失败。
+    /// 重生位置 = 记录时的视口 X（可为负，clamp 到左失败线内；未记录则 22%）。
+    /// </summary>
+    private void RespawnVehicle()
+    {
+        if (_world is null || _worldXPx.Count < 2 || _plotWPx < 16)
+        {
+            return;
+        }
+
+        // 原地重生：用记录位置（可为负=左边界外，clamp 到失败线内）；未记录则 22%。
+        var spawnViewXPx = !float.IsNaN(_respawnViewXPx)
+            ? System.Math.Clamp(_respawnViewXPx, -LeftFailPx, _plotWPx)
+            : _plotWPx * 0.22f;
+        _respawnViewXPx = float.NaN;
+
+        SpawnVehicleAt(spawnViewXPx);
+        _pedal = 0;
+        _dead = false;
+        _controlsDisabled = false;
+        _stepAccumulator = 0;
+        _lastScrollSampleMs = Environment.TickCount64;
+        _scrollPxPerSec = 0;
+        ResetJumpPrediction();
+        _flipSinceMs = 0;
+    }
+
+    /// <summary>
+    /// 上移轮心直到车底轮廓不再穿入地形（凹槽/陡坡重生时防初始重叠）。
+    /// 每次取最大穿透深度一次上移到位，循环兑底防异常。
+    /// </summary>
+    private float RaiseAboveTerrain(float spawnXM, float wheelYM)
+    {
+        const int maxIter = 8;
+        var y = wheelYM;
+        for (var iter = 0; iter < maxIter; iter++)
+        {
+            var pen = MaxTerrainPenetrationM(spawnXM, y);
+            if (pen <= 0f)
+            {
+                break;
+            }
+
+            y += pen + SpawnClearanceM;
+        }
+
+        return y;
+    }
+
+    /// <summary>车底轮廓关键点相对地形的最大穿入深度（&gt;0 表示穿入）。</summary>
+    private float MaxTerrainPenetrationM(float spawnXM, float wheelYM)
+    {
+        var chassisCenterY = wheelYM + ChassisHalfH;
+        var chassisBottomY = chassisCenterY - ChassisHalfH;
+        var maxPen = 0f;
+
+        // 轮子底部。
+        CheckPoint(spawnXM - WheelOffsetX, wheelYM - WheelRadius);
+        CheckPoint(spawnXM + WheelOffsetX, wheelYM - WheelRadius);
+        // 底盘下沿两端 + 中间采样（跨凹槽时底盘会顶到槽壁）。
+        CheckPoint(spawnXM - ChassisHalfW, chassisBottomY);
+        CheckPoint(spawnXM + ChassisHalfW, chassisBottomY);
+        for (var i = -2; i <= 2; i++)
+        {
+            var x = spawnXM + (ChassisHalfW * i / 2f);
+            CheckPoint(x, chassisBottomY);
+        }
+
+        return maxPen;
+
+        void CheckPoint(float x, float y)
+        {
+            var terrainY = SampleSurfaceM(x);
+            var pen = terrainY - y;
+            if (pen > maxPen)
+            {
+                maxPen = pen;
+            }
+        }
     }
 
     private float SampleSurfaceM(float worldXM)

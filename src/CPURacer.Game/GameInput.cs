@@ -25,6 +25,7 @@ public static class GameInput
     private const int VkRight = 0x27;
     private const int VkA = 0x41;
     private const int VkD = 0x44;
+    private const int VkR = 0x52;
 
     private static readonly bool[] HookDown = new bool[256];
     private static LowLevelKeyboardProc? _proc;
@@ -40,6 +41,9 @@ public static class GameInput
 
     /// <summary>Tab — toggle Play/Debug chrome (edge-detect in App).</summary>
     public static bool DebugToggleDown => IsDown(VkTab);
+
+    /// <summary>R — 翻车回正（边缘检测在 App）。</summary>
+    public static bool RollResetDown => IsDown(VkR);
 
     public static void Install()
     {

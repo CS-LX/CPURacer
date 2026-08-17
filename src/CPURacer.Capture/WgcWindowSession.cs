@@ -112,7 +112,7 @@ internal sealed class WgcWindowSession : IDisposable
         }
     }
 
-    public async Task<(int Width, int Height, byte[] Bgra)?> CaptureBgraAsync(
+    public async Task<(int Width, int Height, byte[] Bgra, TimeSpan PresentTime)?> CaptureBgraAsync(
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -122,6 +122,9 @@ internal sealed class WgcWindowSession : IDisposable
         {
             return null;
         }
+
+        // 帧的呈现时间（QPC，Taskmgr 侧），用于测量图表更新周期与相位。
+        var presentTime = frame.SystemRelativeTime;
 
         using var bitmap = await SoftwareBitmap
             .CreateCopyFromSurfaceAsync(frame.Surface)
@@ -135,7 +138,7 @@ internal sealed class WgcWindowSession : IDisposable
         bitmap.CopyToBuffer(buffer);
         var bgra = new byte[byteCount];
         buffer.CopyTo(bgra);
-        return (width, height, bgra);
+        return (width, height, bgra, presentTime);
     }
 
     private async Task<Direct3D11CaptureFrame?> WaitForUsableFrameAsync(

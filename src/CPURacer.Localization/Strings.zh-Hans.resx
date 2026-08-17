@@ -16,6 +16,8 @@
 请打开 性能 → CPU</value></data>
   <data name="HudRacing" xml:space="preserve"><value>{0:0.0}m  最佳 {1:0.0}m</value></data>
   <data name="HudFlipped" xml:space="preserve"><value>翻车 · {0:0.0}m — Space</value></data>
+  <data name="HudFlipRecoverWait" xml:space="preserve"><value>翻车 · {0:0.0}m — {1:0.0} 秒后允许回正</value></data>
+  <data name="HudFlipRecoverReady" xml:space="preserve"><value>翻车 · {0:0.0}m — 按 R 回正</value></data>
   <data name="TrayStart" xml:space="preserve"><value>开始</value></data>
   <data name="TrayStop" xml:space="preserve"><value>停止</value></data>
   <data name="TrayRestart" xml:space="preserve"><value>重开（Space）</value></data>

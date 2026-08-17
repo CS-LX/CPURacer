@@ -12,9 +12,15 @@ if exist "D:\Development Programs\VS\Program\MSBuild\Current\Bin\amd64\MSBuild.e
 if not defined MSBUILD if exist "D:\Development Programs\VS\Program\MSBuild\Current\Bin\MSBuild.exe" (
   set "MSBUILD=D:\Development Programs\VS\Program\MSBuild\Current\Bin\MSBuild.exe"
 )
-if not defined MSBUILD (
-  set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
-  if exist "%VSWHERE%" for /f "usebackq delims=" %%i in (`"%VSWHERE%" -latest -products * -requires Microsoft.Component.MSBuild -find "MSBuild\**\Bin\MSBuild.exe"`) do set "MSBUILD=%%i"
+
+rem VS 2022 installs to %ProgramFiles%\Microsoft Visual Studio\2022\<Edition>.
+rem Probe each edition directly. %ProgramFiles(x86)% and vswhere contain
+rem parens/spaces that break cmd's for /f parsing, so avoid them here.
+if not defined MSBUILD for /d %%e in ("%ProgramFiles%\Microsoft Visual Studio\2022\*") do (
+  if exist "%%e\MSBuild\Current\Bin\amd64\MSBuild.exe" set "MSBUILD=%%e\MSBuild\Current\Bin\amd64\MSBuild.exe"
+)
+if not defined MSBUILD for /d %%e in ("%ProgramFiles%\Microsoft Visual Studio\2022\*") do (
+  if exist "%%e\MSBuild\Current\Bin\MSBuild.exe" set "MSBUILD=%%e\MSBuild\Current\Bin\MSBuild.exe"
 )
 
 rem GitHub Actions (setup-msbuild) and developer machines with MSBuild on PATH.

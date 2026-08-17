@@ -64,8 +64,26 @@ public sealed class HeightFieldExtractor
     /// <summary>Reject incomplete composition frames instead of drawing a fallback plateau.</summary>
     private const float MinReliableCoverage = 0.25f;
 
+    /// <summary>
+    /// 空间连续搜索窗口：相邻列峰值位移超出此值视为脱靶，退化为全列扫描。
+    /// Taskmgr 曲线相邻列高度差通常远小于此值，命中率高且避免错误传播。
+    /// </summary>
+    private const int RidgeWindowPx = 32;
+
+    // 动态 accent 识别：自举前评分不假设色相（便于识别任意主题曲线色）；
+    // 自举后按目标色准入并平滑跟踪主题/强调色变化。
+    private const float AccentAdaptRate = 0.10f;
+    private const int AccentDominanceMin = 20;
+    private const int AccentDominanceRatio = 40;
+
     private readonly PlotInset _inset;
     private readonly int _smoothRadius;
+
+    private byte _accentB = 187;
+    private byte _accentG = 125;
+    private byte _accentR = 12;
+    private bool _accentValid;
+    private int _accentFailStreak;
 
     public HeightFieldExtractor(PlotInset? inset = null, int smoothRadius = 1)
     {
@@ -98,19 +116,35 @@ public sealed class HeightFieldExtractor
         long accentB = 0;
         long accentG = 0;
         long accentR = 0;
+        var yTop = inset.Top;
+        var yBottom = inset.Top + plotH - 1;
+        // 上一列峰值 Y（空间连续引导）；首列或脱靶时全列扫描兜底。
+        var lastRidgeY = float.NaN;
         for (var x = 0; x < plotW; x++)
         {
             var fx = inset.Left + x;
-            if (TrySampleColumnRidge(
-                    frame,
-                    fx,
-                    inset.Top,
-                    inset.Top + plotH - 1,
-                    out var y,
-                    out var b,
-                    out var g,
-                    out var r,
-                    out var score))
+            var ok = false;
+            float y = 0;
+            byte b = 0;
+            byte g = 0;
+            byte r = 0;
+            var score = 0;
+
+            if (!float.IsNaN(lastRidgeY))
+            {
+                // 相邻列连续：在上一列峰值附近 ±RidgeWindowPx 搜索。
+                var wTop = Math.Max(yTop, (int)lastRidgeY - RidgeWindowPx);
+                var wBottom = Math.Min(yBottom, (int)lastRidgeY + RidgeWindowPx);
+                ok = TrySampleColumnRidge(frame, fx, wTop, wBottom, out y, out b, out g, out r, out score);
+            }
+
+            if (!ok)
+            {
+                // 首列或窗口脱靶（陡坡/突变）：全列扫描兜底。
+                ok = TrySampleColumnRidge(frame, fx, yTop, yBottom, out y, out b, out g, out r, out score);
+            }
+
+            if (ok)
             {
                 raw[x] = y;
                 detected++;
@@ -118,10 +152,12 @@ public sealed class HeightFieldExtractor
                 accentB += (long)b * score;
                 accentG += (long)g * score;
                 accentR += (long)r * score;
+                lastRidgeY = y;
             }
             else
             {
                 raw[x] = float.NaN;
+                // 保留上一有效位置：短暂缺失列后仍可继续窗口引导。
             }
         }
 
@@ -129,7 +165,28 @@ public sealed class HeightFieldExtractor
         // Never turn such a frame into a fixed 92%-height platform.
         if (detected < Math.Max(4, (int)(plotW * MinReliableCoverage)))
         {
-            return null;
+            // 连续提取失败可能是主题/强调色切换导致目标色拒掉了新曲线：
+            // 回到无假设自举，让下一帧重新识别颜色。遮挡时无假设也找不到
+            // 高饱和像素，会继续保持失败态，不会误自举。
+            if (++_accentFailStreak >= 30)
+            {
+                _accentValid = false;
+            }
+
+            // 低占用（曲线贴底被底部 inset 排除）或曲线极淡时不整帧拒绝：
+            // 未检测列以图底为地形，得到一条平地赛道，而不是停留在旧地形。
+            var floorY = inset.Top + plotH - 1;
+            for (var x = 0; x < raw.Length; x++)
+            {
+                if (float.IsNaN(raw[x]))
+                {
+                    raw[x] = floorY;
+                }
+            }
+        }
+        else
+        {
+            _accentFailStreak = 0;
         }
 
         var completed = InterpolateMissing(raw);
@@ -143,9 +200,43 @@ public sealed class HeightFieldExtractor
             ab = (byte)System.Math.Clamp(accentB / accentWeight, 0, 255);
             ag = (byte)System.Math.Clamp(accentG / accentWeight, 0, 255);
             ar = (byte)System.Math.Clamp(accentR / accentWeight, 0, 255);
+            UpdateAccentTarget(ab, ag, ar, accentWeight);
         }
 
         return new HeightField(w, h, inset, smooth, ab, ag, ar);
+    }
+
+    /// <summary>
+    /// 用当前帧的加权平均曲线色（含 fill 的暗变体）平滑更新目标色。
+    /// 候选无清晰 dominant（如被遮挡/无曲线）时保持现有目标不变。
+    /// </summary>
+    private void UpdateAccentTarget(byte candB, byte candG, byte candR, long weight)
+    {
+        if (weight < 64)
+        {
+            return;
+        }
+
+        var max = Math.Max(candB, Math.Max(candG, candR));
+        var min = Math.Min(candB, Math.Min(candG, candR));
+        if (max - min < AccentDominanceMin)
+        {
+            return;
+        }
+
+        if (!_accentValid)
+        {
+            _accentB = candB;
+            _accentG = candG;
+            _accentR = candR;
+            _accentValid = true;
+            return;
+        }
+
+        // 温和跟随：主题/强调色中途变化时收敛，瞬变则几乎不动。
+        _accentB = (byte)(_accentB + (candB - _accentB) * AccentAdaptRate);
+        _accentG = (byte)(_accentG + (candG - _accentG) * AccentAdaptRate);
+        _accentR = (byte)(_accentR + (candR - _accentR) * AccentAdaptRate);
     }
 
     /// <summary>Extract from raw BGRA (for tests / fixtures).</summary>
@@ -156,7 +247,7 @@ public sealed class HeightFieldExtractor
     /// Brightest-blue Y near the stroke. Windowed around argmax so dim fill cannot
     /// merge into a wide band and flip bandTop/centroid frame-to-frame.
     /// </summary>
-    private static bool TrySampleColumnRidge(
+    private bool TrySampleColumnRidge(
         CapturedFrame frame,
         int x,
         int yTop,
@@ -220,28 +311,52 @@ public sealed class HeightFieldExtractor
     }
 
     /// <summary>
-    /// Higher for saturated Taskmgr stroke blues; near-zero for gray grids and faint washes.
+    /// 动态目标色评分。自举前只看饱和度+亮度（不假设色相，便于首帧识别任意主题）；
+    /// 自举后要求像素与目标色同 dominant 通道且通道差成比例，从而剔除网格/背景
+    /// 以及同 dominant 但不同色相的干扰（如红 vs 橙）。
     /// </summary>
-    public static int AccentScore(byte b, byte g, byte r)
+    public int AccentScore(byte b, byte g, byte r)
     {
-        // Blue-dominant only (rejects orange debug stroke and cyan overlays).
-        if (b <= r + 24 || b <= g + 12)
-        {
-            return 0;
-        }
-
-        var max = Math.Max(b, Math.Max(g, r));
-        var min = Math.Min(b, Math.Min(g, r));
-        var sat = max - min;
+        var maxP = Math.Max(b, Math.Max(g, r));
+        var minP = Math.Min(b, Math.Min(g, r));
+        var sat = maxP - minP;
         if (sat < 40)
         {
             return 0;
         }
 
-        var chroma = b - Math.Max(r, g);
-        // Bright saturated blues score high; dim translucent wash scores low.
-        return chroma * 2 + sat + (b / 3);
+        if (!_accentValid)
+        {
+            // 自举阶段：无假设，只按饱和度+亮度给分。
+            return sat * 2 + maxP / 3;
+        }
+
+        // dominant 通道必须与目标一致。
+        var targetMax = Math.Max(_accentB, Math.Max(_accentG, _accentR));
+        if (targetMax == _accentB && (b < g || b < r)
+            || targetMax == _accentG && (g < b || g < r)
+            || targetMax == _accentR && (r < b || r < g))
+        {
+            return 0;
+        }
+
+        // 通道差比例约束：像素通道差至少为目标通道差的 AccentDominanceRatio%。
+        // 同色系不同亮度（stroke/fill/光晕）按比例缩放后仍能通过；
+        // 同 dominant 但色相不同的干扰（如红 vs 橙）通道差结构不同而被剔除。
+        var secondP = MidOfThree(b, g, r);
+        var targetSecond = MidOfThree(_accentB, _accentG, _accentR);
+        var chroma = maxP - secondP;
+        if (chroma * 100 < (targetMax - targetSecond) * AccentDominanceRatio)
+        {
+            return 0;
+        }
+
+        // Bright saturated same-hue pixels score high; dim wash scores low.
+        return chroma * 2 + sat + maxP / 3;
     }
+
+    private static int MidOfThree(int a, int b, int c)
+        => Math.Max(Math.Min(a, b), Math.Min(Math.Max(a, b), c));
 
     /// <summary>
     /// Fill undetected column runs from their neighboring contour samples. This preserves

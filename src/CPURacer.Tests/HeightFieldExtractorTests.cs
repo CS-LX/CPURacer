@@ -186,10 +186,100 @@ public class HeightFieldExtractorTests
     [Fact]
     public void AccentScore_RejectsGrayGridAndOrangeDebug()
     {
-        Assert.Equal(0, HeightFieldExtractor.AccentScore(80, 80, 80));
-        Assert.Equal(0, HeightFieldExtractor.AccentScore(70, 75, 90)); // gray-blue grid-ish
-        Assert.Equal(0, HeightFieldExtractor.AccentScore(0, 140, 255)); // orange debug (B,G,R)
-        Assert.True(HeightFieldExtractor.AccentScore(240, 140, 50) >= 90);
+        var ext = new HeightFieldExtractor();
+        // 先用蓝色帧自举出蓝色目标，使 AccentScore 进入目标色准入分支。
+        _ = ext.ExtractBgra(160, 100, MakeFrame(160, 100, (_, _) => (240, 140, 50)));
+
+        Assert.Equal(0, ext.AccentScore(80, 80, 80));
+        Assert.Equal(0, ext.AccentScore(70, 75, 90)); // gray-blue grid-ish
+        Assert.Equal(0, ext.AccentScore(0, 140, 255)); // orange debug (B,G,R)
+        Assert.True(ext.AccentScore(240, 140, 50) >= 90);
+    }
+
+    [Fact]
+    public void Extract_GreenCurve_YieldsGreenAccentAndCorrectRidge()
+    {
+        const int w = 180;
+        const int h = 100;
+        var inset = new PlotInset(5, 10, 5, 10);
+        var bgra = MakeFrame(w, h, (x, y) =>
+        {
+            var plotX = x - inset.Left;
+            var plotW = inset.ContentWidth(w);
+            var t = plotW <= 1 ? 0 : Math.Abs(plotX - plotW / 2.0) / (plotW / 2.0);
+            var lineY = inset.Top + (int)(10 + t * 50);
+            if (y >= lineY && x >= inset.Left && x < w - inset.Right
+                && y >= inset.Top && y < h - inset.Bottom)
+            {
+                return (60, 220, 50); // B,G,R green stroke/fill
+            }
+
+            return (18, 18, 18);
+        });
+
+        var field = new HeightFieldExtractor(inset, smoothRadius: 0).ExtractBgra(w, h, bgra);
+        Assert.NotNull(field);
+        var center = field!.YFromTop[field.PlotWidth / 2];
+        var edge = field.YFromTop[2];
+        Assert.True(center < edge - 8, $"center Y {center} should be above edge Y {edge}");
+        Assert.True(
+            field.AccentG > field.AccentB && field.AccentG > field.AccentR,
+            $"accent should be green-dominant, got B={field.AccentB} G={field.AccentG} R={field.AccentR}");
+    }
+
+    [Fact]
+    public void Extract_OrangeCurve_YieldsOrangeAccentAndCorrectRidge()
+    {
+        const int w = 180;
+        const int h = 100;
+        var inset = new PlotInset(5, 10, 5, 10);
+        var bgra = MakeFrame(w, h, (x, y) =>
+        {
+            var plotX = x - inset.Left;
+            var plotW = inset.ContentWidth(w);
+            var t = plotW <= 1 ? 0 : Math.Abs(plotX - plotW / 2.0) / (plotW / 2.0);
+            var lineY = inset.Top + (int)(10 + t * 50);
+            if (y >= lineY && x >= inset.Left && x < w - inset.Right
+                && y >= inset.Top && y < h - inset.Bottom)
+            {
+                return (50, 120, 220); // B,G,R orange stroke/fill
+            }
+
+            return (18, 18, 18);
+        });
+
+        var field = new HeightFieldExtractor(inset, smoothRadius: 0).ExtractBgra(w, h, bgra);
+        Assert.NotNull(field);
+        var center = field!.YFromTop[field.PlotWidth / 2];
+        var edge = field.YFromTop[2];
+        Assert.True(center < edge - 8, $"center Y {center} should be above edge Y {edge}");
+        Assert.True(
+            field.AccentR > field.AccentG && field.AccentR > field.AccentB,
+            $"accent should be orange-dominant, got B={field.AccentB} G={field.AccentG} R={field.AccentR}");
+    }
+
+    [Fact]
+    public void Extract_RecoversAfterAccentThemeSwitch()
+    {
+        // 先蓝色自举，再给绿色帧：目标色拒绝绿色 → 连续失败 → 重置自举 → 学回绿色。
+        const int w = 160;
+        const int h = 100;
+        var inset = new PlotInset(5, 8, 5, 8);
+        var blue = MakeFrame(w, h, (_, _) => (240, 140, 50));
+        var green = MakeFrame(w, h, (_, _) => (60, 220, 50));
+        var ext = new HeightFieldExtractor(inset);
+
+        Assert.NotNull(ext.ExtractBgra(w, h, blue));
+        for (var i = 0; i < 35; i++)
+        {
+            _ = ext.ExtractBgra(w, h, green);
+        }
+
+        var field = ext.ExtractBgra(w, h, green);
+        Assert.NotNull(field);
+        Assert.True(
+            field!.AccentG > field.AccentB && field.AccentG > field.AccentR,
+            $"accent should re-learn green, got B={field.AccentB} G={field.AccentG} R={field.AccentR}");
     }
 
     [Fact]
@@ -261,14 +351,16 @@ public class HeightFieldExtractorTests
     }
 
     [Fact]
-    public void Extract_RejectsFrameWithInsufficientBlueCoverage()
+    public void Extract_LowCoverageFallsBackToFloor()
     {
+        // 低占用：曲线极淡/贴底被 inset 排除时，未检测列以图底为地形，
+        // 而不是整帧拒绝（External WGC 不依赖 BitBlt 合成帧防线）。
         const int w = 200;
         const int h = 100;
         var inset = new PlotInset(5, 8, 5, 8);
         var bgra = MakeFrame(w, h, (x, y) =>
         {
-            // Only a tiny fragment: incomplete composition frame, not a valid contour.
+            // Only a tiny fragment: low-utilization curve fragment.
             if (x is >= 10 and < 20 && y >= 70)
             {
                 return (240, 140, 50);
@@ -277,7 +369,13 @@ public class HeightFieldExtractorTests
             return (18, 18, 18);
         });
 
-        Assert.Null(new HeightFieldExtractor(inset).ExtractBgra(w, h, bgra));
+        var field = new HeightFieldExtractor(inset).ExtractBgra(w, h, bgra);
+        Assert.NotNull(field);
+        var values = field!.YFromTop;
+        Assert.DoesNotContain(values, float.IsNaN);
+        var floor = inset.Top + (h - inset.Top - inset.Bottom) - 1;
+        Assert.True(values[0] >= floor - 1, $"col 0 should be at floor, got {values[0]}");
+        Assert.True(values[10] <= floor - 10, $"col 10 should keep the ridge, got {values[10]}");
     }
 
     [Fact]

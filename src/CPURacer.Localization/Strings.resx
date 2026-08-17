@@ -16,6 +16,8 @@ Performance → CPU</value></data>
 open Performance → CPU</value></data>
   <data name="HudRacing" xml:space="preserve"><value>{0:0.0}m  best {1:0.0}m</value></data>
   <data name="HudFlipped" xml:space="preserve"><value>Flipped · {0:0.0}m — Space</value></data>
+  <data name="HudFlipRecoverWait" xml:space="preserve"><value>Flipped · {0:0.0}m — recover in {1:0.0}s</value></data>
+  <data name="HudFlipRecoverReady" xml:space="preserve"><value>Flipped · {0:0.0}m — press R to recover</value></data>
   <data name="TrayStart" xml:space="preserve"><value>Start</value></data>
   <data name="TrayStop" xml:space="preserve"><value>Stop</value></data>
   <data name="TrayRestart" xml:space="preserve"><value>Restart (Space)</value></data>

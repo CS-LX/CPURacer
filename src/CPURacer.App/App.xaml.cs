@@ -45,7 +45,6 @@ public partial class App : Application
     private readonly HeightFieldExtractor _extractor = new();
     private readonly RaceSim _race = new();
     private DispatcherTimer? _captureTimer;
-    private DispatcherTimer? _externalTimer;
     private DispatcherTimer? _raceTimer;
     private int _captureFailStreak;
     private int _externalFrameFailStreak;
@@ -53,6 +52,7 @@ public partial class App : Application
     private int _trayTipFrame;
     private bool _raceWanted;
     private bool _spaceWasDown;
+    private bool _rollWasDown;
     private TimeSpan _lastRaceTime;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -98,15 +98,8 @@ public partial class App : Application
         };
         _captureTimer.Tick += (_, _) => CaptureTickChild();
 
-        // Native External HWND does not participate in WPF composition. A dedicated
-        // dispatcher clock must keep ticking while the zero-sized WPF shell is hidden.
-        _externalTimer = new DispatcherTimer(DispatcherPriority.Render)
-        {
-            Interval = TimeSpan.FromMilliseconds(16),
-        };
-        _externalTimer.Tick += OnExternalTick;
-
-        // Bypass clock for RaceSim — must not share OnExternalTick / TickExternalFrame.
+        // RaceHost owns the single 60 Hz frame loop: External terrain feed
+        // (WGC capture + extract + SetTerrain) then physics then render.
         _raceTimer = new DispatcherTimer(DispatcherPriority.Render)
         {
             Interval = TimeSpan.FromMilliseconds(16),
@@ -433,7 +426,11 @@ public partial class App : Application
         UpdateTrayTip(roi);
     }
 
-    private void OnExternalTick(object? sender, EventArgs e)
+    /// <summary>
+    /// External 模式的地形进给：WGC 读最新帧 + 提取 + SetTerrain + 窗口放置。
+    /// 合并进 RaceHost 帧循环后，与物理、渲染同帧执行，消除跨定时器错位。
+    /// </summary>
+    private void TickExternalFrameSafe()
     {
         if (_nativeOverlay is null || _watcher is null || !_watcher.IsTracking)
         {
@@ -452,16 +449,14 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            // One transient placement/drawing failure must not stop the dispatcher
-            // clock. Keep the previous native frame and retry on the next tick.
+            // One transient placement/drawing failure must not stop the frame
+            // loop. Keep the previous native frame and retry on the next tick.
             _externalFrameFailStreak++;
             if (_externalFrameFailStreak == 1 || _externalFrameFailStreak % 60 == 0)
             {
                 Debug.WriteLine(
                     $"External overlay frame failed ({_externalFrameFailStreak}): {ex}");
             }
-
-            return;
         }
 
         // Throttle tray text updates; NotifyIcon churn every frame is expensive.
@@ -492,6 +487,17 @@ public partial class App : Application
     private void OnRaceHostTick(object? sender, EventArgs e)
     {
         PollDebugToggle();
+        TickExternalFrameSafe();
+
+        // 跳变前馈：用捕获层学习的更新周期/相位，预测下次更新时刻喂给 RaceSim。
+        if (_followMode == TrackFollowMode.External && _windowCapture.HasUpdateTiming)
+        {
+            _race.SetPredictedUpdate(_windowCapture.NextUpdateTime);
+        }
+        else
+        {
+            _race.ClearPrediction();
+        }
 
         if (!_raceWanted && !_race.IsRunning && !_race.IsDead)
         {
@@ -503,6 +509,7 @@ public partial class App : Application
             }
 
             _spaceWasDown = idleSpace;
+            RenderExternalNow();
             return;
         }
 
@@ -531,6 +538,7 @@ public partial class App : Application
                 _overlay?.SetCarPose(deadCar);
             }
 
+            RenderExternalNow();
             return;
         }
 
@@ -556,6 +564,15 @@ public partial class App : Application
         }
 
         _spaceWasDown = space;
+
+        // 翻车回正：翻倒超过惩罚时间后按 R 原地回正（RaceSim 内部检查就绪态）。
+        var roll = GameInput.RollResetDown;
+        if (roll && !_rollWasDown)
+        {
+            _race.TryFlipRecover();
+        }
+
+        _rollWasDown = roll;
 
         var wasRunning = _race.IsRunning;
         var throttle = GameInput.ThrottleDown;
@@ -585,6 +602,17 @@ public partial class App : Application
         if (wasRunning != _race.IsRunning)
         {
             SyncRaceMenu();
+        }
+
+        RenderExternalNow();
+    }
+
+    /// <summary>External 模式：物理步进/提示更新后立即用最新地形重绘，保证画面配对。</summary>
+    private void RenderExternalNow()
+    {
+        if (_followMode == TrackFollowMode.External)
+        {
+            _nativeOverlay?.RenderNow();
         }
     }
 
@@ -668,20 +696,18 @@ public partial class App : Application
     {
         if (_watcher?.IsTracking != true)
         {
-            StopExternalLoop();
             StopRaceHostLoop();
             _captureTimer?.Stop();
             return;
         }
 
+        // External 地形进给已并入 RaceHost 帧循环；Child 捕获保持独立 30Hz。
         if (_followMode == TrackFollowMode.External)
         {
             _captureTimer?.Stop();
-            StartExternalLoop();
         }
         else
         {
-            StopExternalLoop();
             _captureTimer?.Start();
         }
 
@@ -701,16 +727,6 @@ public partial class App : Application
             StopRaceHostLoop();
             ClearBanners();
         }
-    }
-
-    private void StartExternalLoop()
-    {
-        _externalTimer?.Start();
-    }
-
-    private void StopExternalLoop()
-    {
-        _externalTimer?.Stop();
     }
 
     private void StartRaceHostLoop()
@@ -1054,7 +1070,6 @@ public partial class App : Application
         _overlay.SetCarPose(null);
         _nativeOverlay.SetCarPose(null);
         StopRaceHostLoop();
-        StopExternalLoop();
         _captureTimer.Stop();
         _watcher.Stop();
         _trackItem.Text = Strings.TrayResumeWatch;
@@ -1115,10 +1130,8 @@ public partial class App : Application
         _raceWanted = false;
         _race.Stop();
         StopRaceHostLoop();
-        StopExternalLoop();
         _captureTimer?.Stop();
         _captureTimer = null;
-        _externalTimer = null;
         _raceTimer = null;
         GameInput.Uninstall();
         _windowCapture.Dispose();
