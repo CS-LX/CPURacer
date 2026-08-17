@@ -1,9 +1,35 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
+rem Usage:
+rem   build.cmd                 → Debug x64
+rem   build.cmd Release         → Release x64
+rem   build.cmd Release x86     → Release x86
+rem   build.cmd x32 Debug       → Debug x86  (order-independent)
+rem Arch aliases: x64 | x86 | x32 | Win32
+
 set "CONFIG=Debug"
-if /I "%~1"=="Release" set "CONFIG=Release"
+set "ARCH=x64"
+
+:parse_args
+if "%~1"=="" goto args_done
+if /I "%~1"=="Release" set "CONFIG=Release" & shift & goto parse_args
+if /I "%~1"=="Debug" set "CONFIG=Debug" & shift & goto parse_args
+if /I "%~1"=="x64" set "ARCH=x64" & shift & goto parse_args
+if /I "%~1"=="x86" set "ARCH=x86" & shift & goto parse_args
+if /I "%~1"=="x32" set "ARCH=x86" & shift & goto parse_args
+if /I "%~1"=="Win32" set "ARCH=x86" & shift & goto parse_args
+echo ERROR: Unknown argument "%~1". Use Debug^|Release and/or x64^|x86^|x32.
+exit /b 1
+:args_done
+
+rem Solution platform: x64 or x86 (TrackNative maps x86 → Win32).
+set "SLN_PLATFORM=%ARCH%"
+set "NATIVE_PLATFORM=x64"
+if /I "%ARCH%"=="x86" set "NATIVE_PLATFORM=Win32"
+
+set "OUT_DIR=%~dp0src\CPURacer.App\bin\%CONFIG%\net8.0-windows10.0.20348.0\%ARCH%"
 
 set "MSBUILD="
 if exist "D:\Development Programs\VS\Program\MSBuild\Current\Bin\amd64\MSBuild.exe" (
@@ -36,21 +62,30 @@ if not defined MSBUILD (
 )
 
 echo Using: %MSBUILD%
-echo Building mixed C# + C++ solution ^(one step^)...
-"%MSBUILD%" "%~dp0src\CPURacer.sln" /m /restore /p:Configuration=%CONFIG% /p:Platform="Any CPU"
+echo Building mixed C# + C++ ^(%CONFIG% / %ARCH%^)...
+"%MSBUILD%" "%~dp0src\CPURacer.sln" /m /restore /p:Configuration=%CONFIG% /p:Platform=%SLN_PLATFORM% /p:CpuArch=%ARCH%
 if errorlevel 1 exit /b 1
 
-if not exist "%~dp0src\CPURacer.App\bin\%CONFIG%\net8.0-windows10.0.20348.0\CPURacer.TrackNative.dll" (
-  echo TrackNative.dll missing in App output - building vcxproj explicitly...
-  "%MSBUILD%" "%~dp0src\CPURacer.TrackNative\CPURacer.TrackNative.vcxproj" /m /p:Configuration=%CONFIG% /p:Platform=x64
+if not exist "%OUT_DIR%\CPURacer.TrackNative.dll" (
+  echo TrackNative.dll missing in App output - building vcxproj explicitly ^(%NATIVE_PLATFORM%^)...
+  "%MSBUILD%" "%~dp0src\CPURacer.TrackNative\CPURacer.TrackNative.vcxproj" /m /p:Configuration=%CONFIG% /p:Platform=%NATIVE_PLATFORM%
   if errorlevel 1 exit /b 1
+)
+
+if not exist "%OUT_DIR%\CPURacer.exe" (
+  echo ERROR: CPURacer.exe missing in %OUT_DIR%
+  exit /b 1
+)
+if not exist "%OUT_DIR%\CPURacer.TrackNative.dll" (
+  echo ERROR: TrackNative.dll still missing in %OUT_DIR%
+  exit /b 1
 )
 
 echo.
 echo Build OK.
-echo   src\CPURacer.App\bin\%CONFIG%\net8.0-windows10.0.20348.0\CPURacer.exe
-echo   src\CPURacer.App\bin\%CONFIG%\net8.0-windows10.0.20348.0\CPURacer.TrackNative.dll
+echo   %OUT_DIR%\CPURacer.exe
+echo   %OUT_DIR%\CPURacer.TrackNative.dll
 echo.
 echo Run:
-echo   dotnet run --project src\CPURacer.App --no-build
+echo   "%OUT_DIR%\CPURacer.exe"
 exit /b 0

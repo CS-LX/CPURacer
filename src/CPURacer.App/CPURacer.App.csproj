@@ -7,7 +7,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
-    <PlatformTarget>x64</PlatformTarget>
+    <Platforms>AnyCPU;x64;x86</Platforms>
+    <PlatformTarget>$(CpuArch)</PlatformTarget>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>bin\$(Configuration)\net8.0-windows10.0.20348.0\$(CpuArch)\</OutputPath>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationIcon>CPURacer.ico</ApplicationIcon>

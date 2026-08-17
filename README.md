@@ -28,7 +28,8 @@ Tray: Start / Stop, Restart, Exit. More options under **Advanced** (including La
 
 ## Requirements
 
-- Windows 10 version 2004 (20H1) or later / Windows 11 (x64)
+- Windows 10 version 2004 (20H1) or later / Windows 11
+- Download the matching zip: `win-x64` (typical) or `win-x86` (32-bit)
 - [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) (install if `CPURacer.exe` complains about a missing runtime)
 
 ## Known issues

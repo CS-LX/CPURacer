@@ -28,7 +28,8 @@ Also see: TaskManagerBitmap, render-with-notepad
 
 ## 需要什么
 
-- Windows 10 版本 2004（20H1）或更高 / Windows 11（x64）
+- Windows 10 版本 2004（20H1）或更高 / Windows 11
+- 按系统选包：`win-x64`（常见）或 `win-x86`（32 位）
 - 已安装 [.NET 8 桌面运行时](https://dotnet.microsoft.com/download/dotnet/8.0)（若直接运行 `CPURacer.exe` 提示缺运行时再装）
 
 ## 已知问题

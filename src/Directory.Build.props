@@ -1,4 +1,13 @@
 <Project>
+  <!-- CpuArch: x64 (default) | x86. build.cmd also accepts x32 / Win32 as aliases. -->
+  <PropertyGroup>
+    <CpuArch Condition="'$(CpuArch)' == '' and ('$(Platform)' == 'x86' or '$(Platform)' == 'Win32')">x86</CpuArch>
+    <CpuArch Condition="'$(CpuArch)' == '' and '$(Platform)' == 'x64'">x64</CpuArch>
+    <CpuArch Condition="'$(CpuArch)' == ''">x64</CpuArch>
+    <CpuArch Condition="'$(CpuArch)' == 'x32' or '$(CpuArch)' == 'X32'">x86</CpuArch>
+    <CpuArch Condition="'$(CpuArch)' == 'Win32' or '$(CpuArch)' == 'win32'">x86</CpuArch>
+  </PropertyGroup>
+
   <!-- Release output stays pack-ready: no PDBs next to the player binaries. -->
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <DebugType>none</DebugType>

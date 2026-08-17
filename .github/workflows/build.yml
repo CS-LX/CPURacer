@@ -13,6 +13,10 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, x86]
     permissions:
       contents: write
 
@@ -28,14 +32,17 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Build Release
+      - name: Build Release (${{ matrix.arch }})
         shell: cmd
-        run: build.cmd Release
+        run: build.cmd Release ${{ matrix.arch }}
 
       - name: Resolve pack name
         id: pack
         shell: pwsh
+        env:
+          ARCH: ${{ matrix.arch }}
         run: |
+          $arch = $env:ARCH
           $isTag = $env:GITHUB_REF.StartsWith("refs/tags/")
           if ($isTag) {
             $raw = $env:GITHUB_REF_NAME
@@ -47,34 +54,35 @@ jobs:
               $parts += "0"
             }
             $ver4 = ($parts[0..3] -join ".")
-            $name = "CPURacer-$ver4-win-x64"
+            $name = "CPURacer-$ver4-win-$arch"
             "IS_TAG=true" >> $env:GITHUB_OUTPUT
             "VERSION=$ver4" >> $env:GITHUB_OUTPUT
           } else {
             $sha = $env:GITHUB_SHA.Substring(0, 7)
-            # Windows forbids ':' in filenames; use CPURacer-ci-<sha>.zip
-            $name = "CPURacer-ci-$sha"
+            # Windows forbids ':' in filenames; use CPURacer-ci-<sha>-win-<arch>.zip
+            $name = "CPURacer-ci-$sha-win-$arch"
             "IS_TAG=false" >> $env:GITHUB_OUTPUT
             "VERSION=" >> $env:GITHUB_OUTPUT
           }
           "NAME=$name" >> $env:GITHUB_OUTPUT
           "ZIP=dist/$name.zip" >> $env:GITHUB_OUTPUT
-          Write-Host "Pack name: $name (tag=$isTag)"
+          Write-Host "Pack name: $name (tag=$isTag arch=$arch)"
 
       - name: Pack zip
         shell: pwsh
         env:
           PACK_NAME: ${{ steps.pack.outputs.NAME }}
           PACK_VERSION: ${{ steps.pack.outputs.VERSION }}
+          PACK_ARCH: ${{ matrix.arch }}
           ZIP_PATH: ${{ steps.pack.outputs.ZIP }}
         run: |
           if ($env:PACK_NAME -match '[:*?"<>|\\/]') {
             throw "Invalid pack name for Windows: $($env:PACK_NAME)"
           }
           if ([string]::IsNullOrWhiteSpace($env:PACK_VERSION)) {
-            cmd /c pack-release.cmd
+            cmd /c "pack-release.cmd $($env:PACK_ARCH)"
           } else {
-            cmd /c "pack-release.cmd $($env:PACK_VERSION)"
+            cmd /c "pack-release.cmd $($env:PACK_VERSION) $($env:PACK_ARCH)"
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (-not (Test-Path $env:ZIP_PATH)) {
@@ -89,11 +97,29 @@ jobs:
           path: ${{ steps.pack.outputs.ZIP }}
           if-no-files-found: error
 
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download x64 + x86 zips
+        uses: actions/download-artifact@v4
+        with:
+          pattern: CPURacer-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: List release assets
+        shell: pwsh
+        run: Get-ChildItem -Recurse release-assets | Format-Table FullName, Length
+
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.pack.outputs.ZIP }}
+          files: release-assets/*.zip
           generate_release_notes: true
           fail_on_unmatched_files: true
         env:

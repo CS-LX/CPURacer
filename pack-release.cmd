@@ -1,15 +1,39 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
+rem Usage:
+rem   pack-release.cmd                 → version from default, arch x64
+rem   pack-release.cmd 1.1.0.0         → version + x64
+rem   pack-release.cmd 1.1.0.0 x86     → version + x86
+rem   pack-release.cmd x86             → default version + x86
+rem Env: PACK_NAME overrides zip stem; PACK_ARCH overrides arch.
+
 set "CONFIG=Release"
-set "OUT=src\CPURacer.App\bin\%CONFIG%\net8.0-windows10.0.20348.0"
 set "VER=1.1.0.0"
-if not "%~1"=="" set "VER=%~1"
+set "ARCH=x64"
+if defined PACK_ARCH set "ARCH=%PACK_ARCH%"
+
+:parse_args
+if "%~1"=="" goto args_done
+if /I "%~1"=="x64" set "ARCH=x64" & shift & goto parse_args
+if /I "%~1"=="x86" set "ARCH=x86" & shift & goto parse_args
+if /I "%~1"=="x32" set "ARCH=x86" & shift & goto parse_args
+if /I "%~1"=="Win32" set "ARCH=x86" & shift & goto parse_args
+rem Otherwise treat as version string.
+set "VER=%~1"
+shift
+goto parse_args
+:args_done
+
+if /I "%ARCH%"=="x32" set "ARCH=x86"
+if /I "%ARCH%"=="Win32" set "ARCH=x86"
+
+set "OUT=src\CPURacer.App\bin\%CONFIG%\net8.0-windows10.0.20348.0\%ARCH%"
 
 if not exist "%OUT%\CPURacer.exe" (
-  echo Building Release first...
-  call "%~dp0build.cmd" Release
+  echo Building Release %ARCH% first...
+  call "%~dp0build.cmd" Release %ARCH%
   if errorlevel 1 exit /b 1
 )
 
@@ -26,11 +50,11 @@ if not errorlevel 1 (
   exit /b 1
 )
 
-rem PACK_NAME overrides the zip folder/file stem (CI: CPURacer-ci-<sha>).
+rem PACK_NAME overrides the zip folder/file stem (CI: CPURacer-ci-<sha>-win-x64).
 if defined PACK_NAME (
   set "NAME=%PACK_NAME%"
 ) else (
-  set "NAME=CPURacer-%VER%-win-x64"
+  set "NAME=CPURacer-%VER%-win-%ARCH%"
 )
 
 set "STAGE=%TEMP%\CPURacer-pack-%RANDOM%"
