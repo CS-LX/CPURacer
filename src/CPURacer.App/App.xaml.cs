@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using CPURacer.Capture;
@@ -15,6 +16,11 @@ namespace CPURacer.App;
 
 public partial class App : Application
 {
+    /// <summary>单实例互斥体名（会话内唯一，区分多用户）。</summary>
+    private const string InstanceMutexName = @"Local\CPURacer.SingleInstance.Mutex";
+    /// <summary>“请求旧实例退出”的命名事件。</summary>
+    private const string InstanceShutdownEventName = @"Local\CPURacer.SingleInstance.Shutdown";
+
     private Forms.NotifyIcon? _tray;
     private Forms.ToolStripMenuItem? _trackItem;
     private Forms.ToolStripMenuItem? _overlayItem;
@@ -54,9 +60,15 @@ public partial class App : Application
     private bool _spaceWasDown;
     private bool _rollWasDown;
     private TimeSpan _lastRaceTime;
+    private Mutex? _instanceMutex;
+    private EventWaitHandle? _shutdownSignal;
+    private DispatcherTimer? _instanceWatchTimer;
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // 单实例替换：检测到已有实例时先结束旧进程，再由本进程接管。
+        AcquireSingleInstance();
+
         Forms.Application.SetHighDpiMode(Forms.HighDpiMode.PerMonitorV2);
         base.OnStartup(e);
         Locale.ApplyFromOs();
@@ -126,6 +138,97 @@ public partial class App : Application
 
         // UIPI: non-admin vs elevated Taskmgr — tip once at launch (not only on race start).
         MaybeWarnNonAdmin();
+    }
+
+    /// <summary>
+    /// 单实例替换：若已有实例在运行，通知其优雅退出（释放键盘钩子/托盘图标），
+    /// 等待互斥体释放后接管；超时或旧版本无响应时强制结束旧进程。
+    /// 本实例随后监听同一事件——再下一次启动时自己会被以同样方式替换。
+    /// </summary>
+    private void AcquireSingleInstance()
+    {
+        _instanceMutex = new Mutex(initiallyOwned: true, InstanceMutexName, out var createdNew);
+
+        if (!createdNew)
+        {
+            SignalExistingInstanceToExit();
+            for (var i = 0; i < 30 && !createdNew; i++)
+            {
+                Thread.Sleep(100);
+                _instanceMutex.Dispose();
+                _instanceMutex = new Mutex(true, InstanceMutexName, out createdNew);
+            }
+
+            if (!createdNew)
+            {
+                // 兜底：旧实例无响应（如旧版本没有此机制）→ 强制结束第一个进程。
+                foreach (var proc in Process.GetProcessesByName("CPURacer"))
+                {
+                    if (proc.Id != Environment.ProcessId)
+                    {
+                        try
+                        {
+                            proc.Kill();
+                        }
+                        catch
+                        {
+                            // 进程可能刚好已退出
+                        }
+                    }
+
+                    proc.Dispose();
+                }
+
+                Thread.Sleep(200);
+                _instanceMutex.Dispose();
+                _instanceMutex = new Mutex(true, InstanceMutexName, out createdNew);
+            }
+        }
+
+        // 监听“退出请求”：新实例启动时置位本事件 → 本实例优雅退出。
+        if (!EventWaitHandle.TryOpenExisting(InstanceShutdownEventName, out var signal) || signal is null)
+        {
+            signal = new EventWaitHandle(false, EventResetMode.ManualReset, InstanceShutdownEventName);
+        }
+
+        _shutdownSignal = signal;
+        // 自己刚置位过（接管场景）：复位，避免下一 tick 立即误退出。
+        _shutdownSignal.Reset();
+        _instanceWatchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        _instanceWatchTimer.Tick += (_, _) =>
+        {
+            if (_shutdownSignal is not null && _shutdownSignal.WaitOne(0))
+            {
+                Shutdown();
+            }
+        };
+        _instanceWatchTimer.Start();
+    }
+
+    /// <summary>通知已有实例退出（不存在则创建事件并置位，供兜底路径复用）。</summary>
+    private static void SignalExistingInstanceToExit()
+    {
+        try
+        {
+            EventWaitHandle? signal = null;
+            try
+            {
+                if (!EventWaitHandle.TryOpenExisting(InstanceShutdownEventName, out signal))
+                {
+                    signal = new EventWaitHandle(false, EventResetMode.ManualReset, InstanceShutdownEventName);
+                }
+
+                signal.Set();
+            }
+            finally
+            {
+                signal?.Dispose();
+            }
+        }
+        catch
+        {
+            // 通知失败由互斥体等待 + 强杀兜底
+        }
     }
 
     private void BuildTray()
@@ -354,7 +457,8 @@ public partial class App : Application
             SetCenterPrompt(FigglePrompt.FormatExpand(
                 Strings.PromptGameOver,
                 _race.DistanceMeters,
-                _race.BestDistanceMeters));
+                _race.BestDistanceMeters,
+                _race.CoinsCollected));
             ClearPlayerBanners();
             return;
         }
@@ -518,7 +622,8 @@ public partial class App : Application
             SetCenterPrompt(FigglePrompt.FormatExpand(
                 Strings.PromptGameOver,
                 _race.DistanceMeters,
-                _race.BestDistanceMeters));
+                _race.BestDistanceMeters,
+                _race.CoinsCollected));
             ClearPlayerBanners();
             var deadSpace = GameInput.RestartPressed;
             if (deadSpace && !_spaceWasDown)
@@ -1133,6 +1238,27 @@ public partial class App : Application
         _captureTimer?.Stop();
         _captureTimer = null;
         _raceTimer = null;
+
+        // 单实例：停监听并释放互斥体，允许下一个实例接管。
+        _instanceWatchTimer?.Stop();
+        _instanceWatchTimer = null;
+        _shutdownSignal?.Dispose();
+        _shutdownSignal = null;
+        if (_instanceMutex is not null)
+        {
+            try
+            {
+                _instanceMutex.ReleaseMutex();
+            }
+            catch
+            {
+                // 非持有者（异常路径）直接释放句柄
+            }
+
+            _instanceMutex.Dispose();
+            _instanceMutex = null;
+        }
+
         GameInput.Uninstall();
         _windowCapture.Dispose();
 

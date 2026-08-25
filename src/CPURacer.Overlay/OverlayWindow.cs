@@ -240,10 +240,16 @@ public sealed class OverlayWindow : Window
                 const byte ar = 12, ag = 125, ab = 187;
                 if (_carPose is { } car)
                 {
+                    DrawCoins(dc, car, drawW, drawH);
                     DrawCar(dc, car, drawW, drawH);
                     if (!ShowDebugChrome && car.IsRunning && !car.IsDead)
                     {
                         DrawThrottleBar(dc, car, drawW, drawH, ar, ag, ab);
+                    }
+
+                    if (car.IsRunning && !car.IsDead)
+                    {
+                        DrawCoinScore(dc, car, drawW);
                     }
                 }
 
@@ -340,6 +346,68 @@ public sealed class OverlayWindow : Window
         var pen = new Pen(new SolidColorBrush(Color.FromArgb(230, 255, 140, 0)), 2.0);
         pen.Freeze();
         dc.DrawGeometry(null, pen, geo);
+    }
+
+    /// <summary>右上角金币积分：金色硬币图标 + ×数量（比赛进行中显示）。</summary>
+    private void DrawCoinScore(DrawingContext dc, CarState car, double drawW)
+    {
+        var fill = new SolidColorBrush(Color.FromArgb(242, 255, 204, 64));
+        var edge = new SolidColorBrush(Color.FromArgb(255, 184, 128, 13));
+        fill.Freeze();
+        edge.Freeze();
+        var text = new FormattedText(
+            "×" + car.CoinsCollected,
+            System.Globalization.CultureInfo.CurrentUICulture,
+            FlowDirection.LeftToRight,
+            new Typeface("Consolas"),
+            13,
+            fill,
+            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        const double iconR = 7.0;
+        var textX = drawW - 10 - text.Width;
+        var iconCenter = new Point(textX - iconR - 5, 16);
+        var pen = new Pen(edge, 1.2);
+        pen.Freeze();
+        dc.DrawEllipse(fill, pen, iconCenter, iconR, iconR);
+        dc.DrawText(text, new Point(textX, 16 - (text.Height / 2)));
+    }
+
+    /// <summary>金币：金色圆片 + 深色描边 + 内环（坐标与车身同 frame 像素空间）。</summary>
+    private void DrawCoins(DrawingContext dc, CarState car, double drawW, double drawH)
+    {
+        if (car.Coins.Count == 0)
+        {
+            return;
+        }
+
+        var frameW = _heightField?.FrameWidth ?? _roi?.Width ?? (int)drawW;
+        var frameH = _heightField?.FrameHeight ?? _roi?.Height ?? (int)drawH;
+        if (frameW < 8 || frameH < 8)
+        {
+            return;
+        }
+
+        var sx = drawW / frameW;
+        var sy = drawH / frameH;
+        var radius = Math.Max(4.0, 8.5 * Math.Min(sx, sy));
+
+        var fill = new SolidColorBrush(Color.FromArgb(242, 255, 204, 64));
+        var edge = new SolidColorBrush(Color.FromArgb(255, 184, 128, 13));
+        fill.Freeze();
+        edge.Freeze();
+        var pen = new Pen(edge, 1.5);
+        pen.Freeze();
+        var innerPen = new Pen(edge, 1.0);
+        innerPen.Freeze();
+
+        foreach (var coin in car.Coins)
+        {
+            var cx = coin.X * sx;
+            var cy = coin.YFromTop * sy;
+            var center = new Point(cx, cy);
+            dc.DrawEllipse(fill, pen, center, radius, radius);
+            dc.DrawEllipse(null, innerPen, center, radius * 0.55, radius * 0.55);
+        }
     }
 
     private void DrawCar(DrawingContext dc, CarState car, double drawW, double drawH)
