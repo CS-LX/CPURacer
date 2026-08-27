@@ -1,4 +1,9 @@
+using System.Collections.Generic;
+
 namespace CPURacer.Game;
+
+/// <summary>金币的绘制快照（frame 像素坐标，与 CarState 同一空间）。</summary>
+public readonly record struct CoinView(float X, float YFromTop);
 
 /// <summary>Snapshot for overlay drawing (frame / plot pixel space mixed as noted).</summary>
 public readonly struct CarState
@@ -23,7 +28,9 @@ public readonly struct CarState
         bool isDead,
         bool controlsDisabled,
         bool isRunning,
-        string hud)
+        string hud,
+        IReadOnlyList<CoinView> coins,
+        int coinsCollected)
     {
         ChassisX = chassisX;
         ChassisYFromTop = chassisYFromTop;
@@ -45,6 +52,8 @@ public readonly struct CarState
         ControlsDisabled = controlsDisabled;
         IsRunning = isRunning;
         Hud = hud;
+        Coins = coins;
+        CoinsCollected = coinsCollected;
     }
 
     public float ChassisX { get; }
@@ -70,4 +79,10 @@ public readonly struct CarState
     public bool ControlsDisabled { get; }
     public bool IsRunning { get; }
     public string Hud { get; }
+
+    /// <summary>当前视口内可见的金币（frame 像素坐标）。</summary>
+    public IReadOnlyList<CoinView> Coins { get; }
+
+    /// <summary>本局已收集的金币数。</summary>
+    public int CoinsCollected { get; }
 }
