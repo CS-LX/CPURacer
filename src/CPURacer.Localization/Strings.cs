@@ -19,6 +19,7 @@ public static class Strings
 
     public static string PromptIdle => Get(nameof(PromptIdle));
     public static string PromptGameOver => Get(nameof(PromptGameOver));
+    public static string PromptGameOverNoCoins => Get(nameof(PromptGameOverNoCoins));
     public static string PromptWaitingChart => Get(nameof(PromptWaitingChart));
     public static string PromptCaptureFail => Get(nameof(PromptCaptureFail));
     public static string HudRacing => Get(nameof(HudRacing));
@@ -28,6 +29,8 @@ public static class Strings
     public static string TrayStart => Get(nameof(TrayStart));
     public static string TrayStop => Get(nameof(TrayStop));
     public static string TrayRestart => Get(nameof(TrayRestart));
+    public static string TrayCoinModeOn => Get(nameof(TrayCoinModeOn));
+    public static string TrayCoinModeOff => Get(nameof(TrayCoinModeOff));
     public static string TrayExit => Get(nameof(TrayExit));
     public static string TrayAdvanced => Get(nameof(TrayAdvanced));
     public static string TrayPauseWatch => Get(nameof(TrayPauseWatch));

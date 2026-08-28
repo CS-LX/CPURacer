@@ -247,7 +247,7 @@ public sealed class OverlayWindow : Window
                         DrawThrottleBar(dc, car, drawW, drawH, ar, ag, ab);
                     }
 
-                    if (car.IsRunning && !car.IsDead)
+                    if (car.CoinsEnabled && car.IsRunning && !car.IsDead)
                     {
                         DrawCoinScore(dc, car, drawW);
                     }
@@ -361,7 +361,7 @@ public sealed class OverlayWindow : Window
             FlowDirection.LeftToRight,
             new Typeface("Consolas"),
             13,
-            fill,
+            edge,
             VisualTreeHelper.GetDpi(this).PixelsPerDip);
         const double iconR = 7.0;
         var textX = drawW - 10 - text.Width;

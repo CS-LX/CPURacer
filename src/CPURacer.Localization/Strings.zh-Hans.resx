@@ -10,6 +10,9 @@
   <data name="PromptGameOver" xml:space="preserve"><value>&lt;figgle&gt;GAME OVER&lt;/figgle&gt;
 按 SPACE 再来一局
 {0:0.0}m · 最佳 {1:0.0}m · 金币 {2}</value></data>
+  <data name="PromptGameOverNoCoins" xml:space="preserve"><value>&lt;figgle&gt;GAME OVER&lt;/figgle&gt;
+按 SPACE 再来一局
+{0:0.0}m · 最佳 {1:0.0}m</value></data>
   <data name="PromptWaitingChart" xml:space="preserve"><value>打开任务管理器
 性能 → CPU</value></data>
   <data name="PromptCaptureFail" xml:space="preserve"><value>看不到 CPU 图
@@ -21,6 +24,8 @@
   <data name="TrayStart" xml:space="preserve"><value>开始</value></data>
   <data name="TrayStop" xml:space="preserve"><value>停止</value></data>
   <data name="TrayRestart" xml:space="preserve"><value>重开（Space）</value></data>
+  <data name="TrayCoinModeOn" xml:space="preserve"><value>金币模式：开</value></data>
+  <data name="TrayCoinModeOff" xml:space="preserve"><value>金币模式：关</value></data>
   <data name="TrayExit" xml:space="preserve"><value>退出</value></data>
   <data name="TrayAdvanced" xml:space="preserve"><value>高级</value></data>
   <data name="TrayPauseWatch" xml:space="preserve"><value>暂停监视 Taskmgr</value></data>

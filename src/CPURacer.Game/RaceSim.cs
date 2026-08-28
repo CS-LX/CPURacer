@@ -136,6 +136,7 @@ public sealed class RaceSim
     private float _nextCoinXPx;
     private int _coinsCollected;
     private readonly Random _coinRandom = new();
+    private bool _coinsEnabled = true;
 
     public bool IsRunning { get; private set; }
 
@@ -150,6 +151,32 @@ public sealed class RaceSim
 
     /// <summary>本局已收集的金币数（供 HUD / 结算展示）。</summary>
     public int CoinsCollected => _coinsCollected;
+
+    /// <summary>金币模式默认开启；关闭后不生成、绘制或收集金币。</summary>
+    public bool CoinsEnabled => _coinsEnabled;
+
+    public void SetCoinModeEnabled(bool enabled)
+    {
+        if (_coinsEnabled == enabled)
+        {
+            return;
+        }
+
+        _coinsEnabled = enabled;
+        _coins.Clear();
+        if (!enabled || !IsRunning)
+        {
+            return;
+        }
+
+        var carXPx = _chassis is null
+            ? _scrollOriginPx + (_plotWPx * 0.22f)
+            : _chassis.GetPosition().X * PixelsPerMeter;
+        _nextCoinXPx = System.Math.Max(
+            carXPx + (CoinSpawnAheadPx * 0.5f),
+            _scrollOriginPx + (_plotWPx * 0.5f));
+        SpawnCoinsAhead();
+    }
 
     public void Start()
     {
@@ -367,12 +394,20 @@ public sealed class RaceSim
         _coins.Clear();
         _coinsCollected = 0;
         _nextCoinXPx = _spawnWorldXPx + (CoinSpawnAheadPx * 0.5f);
-        SpawnCoinsAhead();
+        if (_coinsEnabled)
+        {
+            SpawnCoinsAhead();
+        }
     }
 
     /// <summary>前方补金币，直到铺满视口右缘外 SpawnAhead 距离。</summary>
     private void SpawnCoinsAhead()
     {
+        if (!_coinsEnabled)
+        {
+            return;
+        }
+
         var limit = _scrollOriginPx + _plotWPx + CoinSpawnAheadPx;
         while (_nextCoinXPx < limit)
         {
@@ -398,6 +433,11 @@ public sealed class RaceSim
     /// <summary>每帧：前方补生成、车后回收、金币重锚定当前曲线、近距收集。</summary>
     private void UpdateCoins(Vec2 carPosM)
     {
+        if (!_coinsEnabled)
+        {
+            return;
+        }
+
         SpawnCoinsAhead();
 
         var carXPx = carPosM.X * PixelsPerMeter;
@@ -427,6 +467,11 @@ public sealed class RaceSim
     /// <summary>窗口尺寸变化重建世界后：金币重新贴附新地形（越界丢弃），并续铺前方。</summary>
     private void ResampleCoinHeights()
     {
+        if (!_coinsEnabled)
+        {
+            return;
+        }
+
         if (_worldXPx.Count == 0)
         {
             _coins.Clear();
@@ -473,19 +518,22 @@ public sealed class RaceSim
         var worldYPx = p.Y * PixelsPerMeter;
         var yFromTop = CoordMapper.WorldYToFrameYFromTop(worldYPx, _insetTop, _plotHPx);
         // 可见金币 → frame 像素坐标（与底盘同一绘制空间）。
-        var coins = new List<CoinView>(_coins.Count);
-        var coinLeftLimit = _insetLeft - 24f;
-        var coinRightLimit = _insetLeft + _plotWPx + 24f;
-        for (var i = 0; i < _coins.Count; i++)
+        var coins = new List<CoinView>(_coinsEnabled ? _coins.Count : 0);
+        if (_coinsEnabled)
         {
-            var coinX = _insetLeft + (_coins[i].X - renderOriginPx) + 0.5f;
-            if (coinX < coinLeftLimit || coinX > coinRightLimit)
+            var coinLeftLimit = _insetLeft - 24f;
+            var coinRightLimit = _insetLeft + _plotWPx + 24f;
+            for (var i = 0; i < _coins.Count; i++)
             {
-                continue;
-            }
+                var coinX = _insetLeft + (_coins[i].X - renderOriginPx) + 0.5f;
+                if (coinX < coinLeftLimit || coinX > coinRightLimit)
+                {
+                    continue;
+                }
 
-            var coinYFromTop = CoordMapper.WorldYToFrameYFromTop(_coins[i].Y, _insetTop, _plotHPx);
-            coins.Add(new CoinView(coinX, coinYFromTop));
+                var coinYFromTop = CoordMapper.WorldYToFrameYFromTop(_coins[i].Y, _insetTop, _plotHPx);
+                coins.Add(new CoinView(coinX, coinYFromTop));
+            }
         }
 
         // Idle/game-over copy is owned by App + Localization (centered Figgle prompts).
@@ -531,6 +579,7 @@ public sealed class RaceSim
             isRunning: IsRunning,
             hud: hud,
             coins: coins,
+            coinsEnabled: _coinsEnabled,
             coinsCollected: _coinsCollected);
     }
 

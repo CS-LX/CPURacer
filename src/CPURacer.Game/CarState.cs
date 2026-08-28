@@ -30,6 +30,7 @@ public readonly struct CarState
         bool isRunning,
         string hud,
         IReadOnlyList<CoinView> coins,
+        bool coinsEnabled,
         int coinsCollected)
     {
         ChassisX = chassisX;
@@ -53,6 +54,7 @@ public readonly struct CarState
         IsRunning = isRunning;
         Hud = hud;
         Coins = coins;
+        CoinsEnabled = coinsEnabled;
         CoinsCollected = coinsCollected;
     }
 
@@ -82,6 +84,9 @@ public readonly struct CarState
 
     /// <summary>当前视口内可见的金币（frame 像素坐标）。</summary>
     public IReadOnlyList<CoinView> Coins { get; }
+
+    /// <summary>金币模式是否启用。</summary>
+    public bool CoinsEnabled { get; }
 
     /// <summary>本局已收集的金币数。</summary>
     public int CoinsCollected { get; }

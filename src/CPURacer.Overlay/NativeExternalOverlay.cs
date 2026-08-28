@@ -409,7 +409,7 @@ public sealed class NativeExternalOverlay : IDisposable
                 DrawThrottleBar(target, car);
             }
 
-            if (car.IsRunning && !car.IsDead)
+            if (car.CoinsEnabled && car.IsRunning && !car.IsDead)
             {
                 DrawCoinScore(target, car);
             }

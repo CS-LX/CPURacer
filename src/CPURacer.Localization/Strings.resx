@@ -10,6 +10,9 @@ to play</value></data>
   <data name="PromptGameOver" xml:space="preserve"><value>&lt;figgle&gt;GAME OVER&lt;/figgle&gt;
 press SPACE to retry
 {0:0.0}m · best {1:0.0}m · coins {2}</value></data>
+  <data name="PromptGameOverNoCoins" xml:space="preserve"><value>&lt;figgle&gt;GAME OVER&lt;/figgle&gt;
+press SPACE to retry
+{0:0.0}m · best {1:0.0}m</value></data>
   <data name="PromptWaitingChart" xml:space="preserve"><value>open Task Manager
 Performance → CPU</value></data>
   <data name="PromptCaptureFail" xml:space="preserve"><value>can't see CPU chart
@@ -21,6 +24,8 @@ open Performance → CPU</value></data>
   <data name="TrayStart" xml:space="preserve"><value>Start</value></data>
   <data name="TrayStop" xml:space="preserve"><value>Stop</value></data>
   <data name="TrayRestart" xml:space="preserve"><value>Restart (Space)</value></data>
+  <data name="TrayCoinModeOn" xml:space="preserve"><value>Coin mode: On</value></data>
+  <data name="TrayCoinModeOff" xml:space="preserve"><value>Coin mode: Off</value></data>
   <data name="TrayExit" xml:space="preserve"><value>Exit</value></data>
   <data name="TrayAdvanced" xml:space="preserve"><value>Advanced</value></data>
   <data name="TrayPauseWatch" xml:space="preserve"><value>Pause watching Taskmgr</value></data>

@@ -29,6 +29,7 @@ public partial class App : Application
     private Forms.ToolStripMenuItem? _followChildItem;
     private Forms.ToolStripMenuItem? _raceItem;
     private Forms.ToolStripMenuItem? _restartItem;
+    private Forms.ToolStripMenuItem? _coinModeItem;
     private Forms.ToolStripMenuItem? _debugItem;
     private Forms.ToolStripMenuItem? _fitItem;
     private Forms.ToolStripMenuItem? _advancedItem;
@@ -251,6 +252,20 @@ public partial class App : Application
         _restartItem.Click += (_, _) => RestartRace();
         menu.Items.Add(_restartItem);
 
+        _coinModeItem = new Forms.ToolStripMenuItem
+        {
+            CheckOnClick = true,
+            Checked = _race.CoinsEnabled,
+        };
+        _coinModeItem.CheckedChanged += (_, _) =>
+        {
+            if (_coinModeItem is not null)
+            {
+                SetCoinModeEnabled(_coinModeItem.Checked, syncMenu: false);
+            }
+        };
+        menu.Items.Add(_coinModeItem);
+
         menu.Items.Add(new Forms.ToolStripSeparator());
 
         _advancedItem = new Forms.ToolStripMenuItem();
@@ -355,6 +370,8 @@ public partial class App : Application
             _restartItem.Text = Strings.TrayRestart;
         }
 
+        SyncCoinModeMenu();
+
         if (_advancedItem is not null)
         {
             _advancedItem.Text = Strings.TrayAdvanced;
@@ -454,11 +471,7 @@ public partial class App : Application
     {
         if (_race.IsDead)
         {
-            SetCenterPrompt(FigglePrompt.FormatExpand(
-                Strings.PromptGameOver,
-                _race.DistanceMeters,
-                _race.BestDistanceMeters,
-                _race.CoinsCollected));
+            SetCenterPrompt(FormatGameOverPrompt());
             ClearPlayerBanners();
             return;
         }
@@ -471,6 +484,18 @@ public partial class App : Application
 
         UpdateIdleBanners();
     }
+
+    private string FormatGameOverPrompt()
+        => _race.CoinsEnabled
+            ? FigglePrompt.FormatExpand(
+                Strings.PromptGameOver,
+                _race.DistanceMeters,
+                _race.BestDistanceMeters,
+                _race.CoinsCollected)
+            : FigglePrompt.FormatExpand(
+                Strings.PromptGameOverNoCoins,
+                _race.DistanceMeters,
+                _race.BestDistanceMeters);
 
     /// <summary>Child-only capture path (External uses TickExternalFrame).</summary>
     private void CaptureTickChild()
@@ -619,11 +644,7 @@ public partial class App : Application
 
         if (_race.IsDead && !_race.IsRunning)
         {
-            SetCenterPrompt(FigglePrompt.FormatExpand(
-                Strings.PromptGameOver,
-                _race.DistanceMeters,
-                _race.BestDistanceMeters,
-                _race.CoinsCollected));
+            SetCenterPrompt(FormatGameOverPrompt());
             ClearPlayerBanners();
             var deadSpace = GameInput.RestartPressed;
             if (deadSpace && !_spaceWasDown)
@@ -748,6 +769,34 @@ public partial class App : Application
         if (syncMenu && _debugItem is not null && _debugItem.Checked != on)
         {
             _debugItem.Checked = on;
+        }
+    }
+
+    private void SetCoinModeEnabled(bool enabled, bool syncMenu)
+    {
+        _race.SetCoinModeEnabled(enabled);
+        if (syncMenu && _coinModeItem is not null && _coinModeItem.Checked != enabled)
+        {
+            _coinModeItem.Checked = enabled;
+        }
+
+        SyncCoinModeMenu();
+        RefreshStagePrompts();
+    }
+
+    private void SyncCoinModeMenu()
+    {
+        if (_coinModeItem is null)
+        {
+            return;
+        }
+
+        _coinModeItem.Text = _race.CoinsEnabled
+            ? Strings.TrayCoinModeOn
+            : Strings.TrayCoinModeOff;
+        if (_coinModeItem.Checked != _race.CoinsEnabled)
+        {
+            _coinModeItem.Checked = _race.CoinsEnabled;
         }
     }
 
