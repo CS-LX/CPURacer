@@ -22,9 +22,10 @@ Also see: TaskManagerBitmap, render-with-notepad
 2. Open **Task Manager → Performance → CPU** and bring it to the foreground
 3. When the center prompt (ASCII `SPACE`) appears, press **Space** (or use the tray / double-click tray **Start**)
 4. **W / ↑** throttle · **S / ↓** brake / reverse · **Space** restart
-5. Stay on the scrolling chart; when you wipe out, the center shows ASCII `GAME OVER`
+5. Collect the gold coins that follow the CPU chart; the counter appears at the top right during a race
+6. Stay on the scrolling chart; when you wipe out, the center shows ASCII `GAME OVER`
 
-Tray: Start / Stop, Restart, Exit. More options under **Advanced** (including Language: English / 中文).
+Tray: Start / Stop, Restart, **Coin mode: On / Off** (on by default), Exit. More options under **Advanced** (including Language: English / 中文).
 
 ## Requirements
 
