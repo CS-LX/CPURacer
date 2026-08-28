@@ -31,8 +31,9 @@ public sealed class RaceSim
     /// <summary>重生/开局时轮子与地形的间隙（米）：太小会让刚体初始重叠被弹飞。</summary>
     private const float SpawnClearanceM = 0.04f;
 
-    // Pedal ∈ [-1,1]: W ramps up, S ramps down (through 0 into reverse).
-    private const float ThrottleRampPerSec = 1.35f;
+    // Pedal ∈ [-1,1]: 按住 W/S 越久油门越大（约 1s 到满）；松开后自动缓慢回落到 0。
+    private const float ThrottleRampPerSec = 1.0f;
+    private const float PedalDecayPerSec = 0.7f;
     // Revolute motor at |pedal|=1 (rad/s, N·m). Negative ω → +X (forward).
     private const float DriveMotorSpeed = 28f;
     private const float DriveMotorTorque = 3f;
@@ -45,7 +46,8 @@ public sealed class RaceSim
     private const float FlipRecoverClearRad = MathF.PI / 3f;
     /// <summary>翻车回正惩罚：翻倒持续此时间后才允许按 R 回正（毫秒）。</summary>
     private const long FlipRecoverDelayMs = 1000;
-    private const int MaxTerrainSegments = 120;
+    /// <summary>物理地面折线段数上限：越大越贴合可见曲线（出生/行驶误差越小）。</summary>
+    private const int MaxTerrainSegments = 240;
     private const float WorldMarginScreens = 0.35f;
     private const int MaxScrollShiftPx = 24;
     private const float ScrollSmooth = 0.25f;
@@ -55,6 +57,14 @@ public sealed class RaceSim
     private const float RightWallMarginPx = 8f;
     /// <summary>底部传送线：车中心低于图底此量即重生（须低于最低地形，防正常低谷误触）。</summary>
     private const float BottomRespawnPx = 24f;
+    // 金币：严格贴附任务管理器曲线生成（每枚独立采样曲线高度），随世界滚动在前方生成、在身后回收。
+    private const float CoinHoverPx = 26f;
+    private const float CoinCollectRadiusPx = 30f;
+    private const float CoinSpawnAheadPx = 240f;
+    private const float CoinGapMinPx = 150f;
+    private const float CoinGapMaxPx = 260f;
+    private const float CoinArcStepPx = 28f;
+    private const float CoinDespawnBehindPx = 100f;
     /// <summary>跳变前馈：预测更新时刻前开始偏移的提前窗，与入账超时窗（QPC）。</summary>
     private static readonly TimeSpan JumpLeadWindow = TimeSpan.FromMilliseconds(32);
     private static readonly TimeSpan JumpTimeoutWindow = TimeSpan.FromMilliseconds(60);
@@ -121,6 +131,11 @@ public sealed class RaceSim
     private float _runDistanceM;
     private float _sessionBestM;
     private string _deathReason = "";
+    /// <summary>存活金币（世界坐标，plot px；X 为世界 X，Y 为世界 Y 向上）。</summary>
+    private readonly List<Vec2> _coins = new(64);
+    private float _nextCoinXPx;
+    private int _coinsCollected;
+    private readonly Random _coinRandom = new();
 
     public bool IsRunning { get; private set; }
 
@@ -132,6 +147,9 @@ public sealed class RaceSim
     public float DistanceMeters => _runDistanceM;
 
     public float BestDistanceMeters => _sessionBestM;
+
+    /// <summary>本局已收集的金币数（供 HUD / 结算展示）。</summary>
+    public int CoinsCollected => _coinsCollected;
 
     public void Start()
     {
@@ -146,6 +164,7 @@ public sealed class RaceSim
         RebuildGroundFromWorld();
         SpawnVehicle();
         ResetRunStats();
+        ResetCoins();
         _pedal = 0;
         _dead = false;
         _controlsDisabled = false;
@@ -166,6 +185,9 @@ public sealed class RaceSim
         _pedal = 0;
         _runDistanceM = 0;
         _deathReason = "";
+        _coins.Clear();
+        _coinsCollected = 0;
+        _nextCoinXPx = 0;
         _dead = false;
         _controlsDisabled = false;
         _stepAccumulator = 0;
@@ -186,6 +208,7 @@ public sealed class RaceSim
         RebuildGroundFromWorld();
         SpawnVehicle();
         ResetRunStats();
+        ResetCoins();
         _pedal = 0;
         _dead = false;
         _controlsDisabled = false;
@@ -205,7 +228,7 @@ public sealed class RaceSim
         _flipSinceMs = 0;
     }
 
-    /// <summary>W = ramp pedal forward, S = ramp pedal backward (through idle into reverse).</summary>
+    /// <summary>W = 油门随时长正向增大，S = 反向增大；松开后油门自动缓慢归零。</summary>
     public void SetInput(bool throttle, bool brake)
     {
         _throttleKey = throttle;
@@ -241,6 +264,7 @@ public sealed class RaceSim
             SeedWorldFromCamera();
             RebuildGroundFromWorld();
             SpawnVehicle();
+            ResampleCoinHeights();
             _lastScrollSampleMs = Environment.TickCount64;
             return;
         }
@@ -297,6 +321,7 @@ public sealed class RaceSim
         UpdateFlipState();
         var pos = _chassis.GetPosition();
         UpdateDistance(pos);
+        UpdateCoins(pos);
         // 失败/边界：左侧调出图表区域才判失败；顶部允许出去（重力会掉回）；
         // 右侧为空气墙（物理墙）；底部低于地形即传送重生（多为物理 bug 卡穿，
         // 不是玩家失误，不判失败且保留本局距离/成绩）。
@@ -336,6 +361,97 @@ public sealed class RaceSim
         }
     }
 
+    /// <summary>清空并重新铺金币：首批出现在出生点前方。</summary>
+    private void ResetCoins()
+    {
+        _coins.Clear();
+        _coinsCollected = 0;
+        _nextCoinXPx = _spawnWorldXPx + (CoinSpawnAheadPx * 0.5f);
+        SpawnCoinsAhead();
+    }
+
+    /// <summary>前方补金币，直到铺满视口右缘外 SpawnAhead 距离。</summary>
+    private void SpawnCoinsAhead()
+    {
+        var limit = _scrollOriginPx + _plotWPx + CoinSpawnAheadPx;
+        while (_nextCoinXPx < limit)
+        {
+            SpawnCoinGroup(_nextCoinXPx);
+        }
+    }
+
+    /// <summary>在 xPx 处生成一组金币（1~3 枚）：每枚独立采样曲线高度，严格跟随曲线起伏。</summary>
+    private void SpawnCoinGroup(float xPx)
+    {
+        var count = 1 + _coinRandom.Next(0, 3);
+        for (var i = 0; i < count; i++)
+        {
+            var cx = xPx + (i * CoinArcStepPx);
+            _coins.Add(new Vec2(cx, SampleSurfaceYPx(cx) + CoinHoverPx));
+        }
+
+        var gap = CoinGapMinPx
+                  + ((CoinGapMaxPx - CoinGapMinPx) * (float)_coinRandom.NextDouble());
+        _nextCoinXPx = xPx + (count * CoinArcStepPx) + gap;
+    }
+
+    /// <summary>每帧：前方补生成、车后回收、金币重锚定当前曲线、近距收集。</summary>
+    private void UpdateCoins(Vec2 carPosM)
+    {
+        SpawnCoinsAhead();
+
+        var carXPx = carPosM.X * PixelsPerMeter;
+        var carYPx = carPosM.Y * PixelsPerMeter;
+        var collectSq = CoinCollectRadiusPx * CoinCollectRadiusPx;
+        var despawnXPx = _scrollOriginPx - CoinDespawnBehindPx;
+        for (var i = _coins.Count - 1; i >= 0; i--)
+        {
+            if (_coins[i].X < despawnXPx)
+            {
+                _coins.RemoveAt(i);
+                continue;
+            }
+
+            // 重锚定：曲线重同步/跳变后金币仍严格贴附当前曲线。
+            _coins[i] = new Vec2(_coins[i].X, SampleSurfaceYPx(_coins[i].X) + CoinHoverPx);
+            var dx = _coins[i].X - carXPx;
+            var dy = _coins[i].Y - carYPx;
+            if ((dx * dx) + (dy * dy) <= collectSq)
+            {
+                _coins.RemoveAt(i);
+                _coinsCollected++;
+            }
+        }
+    }
+
+    /// <summary>窗口尺寸变化重建世界后：金币重新贴附新地形（越界丢弃），并续铺前方。</summary>
+    private void ResampleCoinHeights()
+    {
+        if (_worldXPx.Count == 0)
+        {
+            _coins.Clear();
+            _nextCoinXPx = _scrollOriginPx + _plotWPx;
+            SpawnCoinsAhead();
+            return;
+        }
+
+        for (var i = _coins.Count - 1; i >= 0; i--)
+        {
+            var x = _coins[i].X;
+            if (x < _worldXPx[0] || x > _worldXPx[^1])
+            {
+                _coins.RemoveAt(i);
+            }
+            else
+            {
+                _coins[i] = new Vec2(x, SampleSurfaceYPx(x) + CoinHoverPx);
+            }
+        }
+
+        _nextCoinXPx = System.Math.Max(_nextCoinXPx, _scrollOriginPx + _plotWPx);
+        SpawnCoinsAhead();
+    }
+
     public CarState? GetCarState()
     {
         if (_chassis is null || _plotWPx <= 0)
@@ -356,6 +472,22 @@ public sealed class RaceSim
         var chassisXPx = _insetLeft + (worldXPx - renderOriginPx) + 0.5f;
         var worldYPx = p.Y * PixelsPerMeter;
         var yFromTop = CoordMapper.WorldYToFrameYFromTop(worldYPx, _insetTop, _plotHPx);
+        // 可见金币 → frame 像素坐标（与底盘同一绘制空间）。
+        var coins = new List<CoinView>(_coins.Count);
+        var coinLeftLimit = _insetLeft - 24f;
+        var coinRightLimit = _insetLeft + _plotWPx + 24f;
+        for (var i = 0; i < _coins.Count; i++)
+        {
+            var coinX = _insetLeft + (_coins[i].X - renderOriginPx) + 0.5f;
+            if (coinX < coinLeftLimit || coinX > coinRightLimit)
+            {
+                continue;
+            }
+
+            var coinYFromTop = CoordMapper.WorldYToFrameYFromTop(_coins[i].Y, _insetTop, _plotHPx);
+            coins.Add(new CoinView(coinX, coinYFromTop));
+        }
+
         // Idle/game-over copy is owned by App + Localization (centered Figgle prompts).
         var hud = _dead
             ? string.Empty
@@ -397,7 +529,9 @@ public sealed class RaceSim
             isDead: _dead,
             controlsDisabled: _controlsDisabled,
             isRunning: IsRunning,
-            hud: hud);
+            hud: hud,
+            coins: coins,
+            coinsCollected: _coinsCollected);
     }
 
     private void FixedStep(float dt)
@@ -599,7 +733,11 @@ public sealed class RaceSim
 
     private void SpawnVehicle() => SpawnVehicleAt(_plotWPx * 0.22f);
 
-    /// <summary>在指定视口 X（相对图表左缘）生成车辆，并抬升到不重叠的安全高度。</summary>
+    /// <summary>
+    /// 在指定视口 X（相对图表左缘）生成车辆。
+    /// 精确贴合曲线：前后轮各自采样地形高度，底盘角取局部坡度角，
+    /// 轮心落在坡度线上方（半径+间隙），再整体抬升消除初始穿入。
+    /// </summary>
     private void SpawnVehicleAt(float spawnViewXPx)
     {
         if (_world is null || _worldXPx.Count < 2 || _plotWPx < 16)
@@ -611,17 +749,37 @@ public sealed class RaceSim
 
         var spawnXPx = _scrollOriginPx + spawnViewXPx;
         var spawnXM = spawnXPx / PixelsPerMeter;
-        var surfaceYM = SampleSurfaceM(spawnXM);
-        // Snug hard-axle spawn: wheel sits on surface; chassis hangs ChassisHalfH above hub.
-        var wheelYM = surfaceYM + WheelRadius + SpawnClearanceM;
-        // 防初始重叠（凹槽/陡坡）：车底轮廓穿入地形则上移直到不重叠，
-        // 物理从“空中小落”开始，避免 Box2D 穿透修复猛弹/卡死。
-        wheelYM = RaiseAboveTerrain(spawnXM, wheelYM);
+        // 前后轮位置的地形采样 → 局部坡度角（保证出生姿态与曲线走向一致）。
+        var backXM = spawnXM - WheelOffsetX;
+        var frontXM = spawnXM + WheelOffsetX;
+        var backSurfaceM = SampleSurfaceM(backXM);
+        var frontSurfaceM = SampleSurfaceM(frontXM);
+        var slopeRad = MathF.Atan2(frontSurfaceM - backSurfaceM, frontXM - backXM);
+
+        var wheelYM = ((backSurfaceM + frontSurfaceM) * 0.5f) + WheelRadius + SpawnClearanceM;
         var chassisYM = wheelYM + ChassisHalfH;
+
+        // 防初始重叠（凹槽/陡坡）：整车轮廓任一点穿入地形则整体上移，
+        // 物理从“空中小落”开始，避免 Box2D 穿透修复猛弹/卡死。
+        for (var iter = 0; iter < 8; iter++)
+        {
+            var pen = MaxAssemblyPenetrationM(spawnXM, chassisYM, slopeRad);
+            if (pen <= 0f)
+            {
+                break;
+            }
+
+            var lift = pen + SpawnClearanceM;
+            chassisYM += lift;
+            wheelYM += lift;
+        }
+
+        var cos = MathF.Cos(slopeRad);
+        var sin = MathF.Sin(slopeRad);
 
         var cbd = new BodyDef();
         cbd.Position.Set(spawnXM, chassisYM);
-        cbd.Angle = 0;
+        cbd.Angle = slopeRad;
         _chassis = _world.CreateBody(cbd);
         var box = new PolygonDef
         {
@@ -636,8 +794,13 @@ public sealed class RaceSim
         _chassis.SetLinearDamping(0.02f);
         _chassis.SetAngularDamping(0.8f);
 
-        _wheelBack = CreateWheel(spawnXM - WheelOffsetX, wheelYM);
-        _wheelFront = CreateWheel(spawnXM + WheelOffsetX, wheelYM);
+        // 轮心 = 底盘中心 + 坡度旋转的局部偏移 (∓WheelOffsetX, -ChassisHalfH)。
+        _wheelBack = CreateWheel(
+            spawnXM - (WheelOffsetX * cos) + (ChassisHalfH * sin),
+            chassisYM - (WheelOffsetX * sin) - (ChassisHalfH * cos));
+        _wheelFront = CreateWheel(
+            spawnXM + (WheelOffsetX * cos) + (ChassisHalfH * sin),
+            chassisYM + (WheelOffsetX * sin) - (ChassisHalfH * cos));
         // Hard axle: revolute pin + rotational motor (no vertical spring).
         _motorBack = CreateWheelMotor(_chassis, _wheelBack);
         _motorFront = CreateWheelMotor(_chassis, _wheelFront);
@@ -683,7 +846,8 @@ public sealed class RaceSim
             return;
         }
 
-        // Hold W: pedal → +1; hold S: pedal → -1; neither: keep current (无级保持).
+        // 按住 W：油门随时长增大到 +1；按住 S：反向增大到 -1；
+        // 松开（或同按视为空挡）：油门自动缓慢回落到 0，车速随之滑行衰减。
         if (_throttleKey && !_brakeKey)
         {
             _pedal = System.Math.Clamp(_pedal + (ThrottleRampPerSec * dt), -1f, 1f);
@@ -691,6 +855,11 @@ public sealed class RaceSim
         else if (_brakeKey && !_throttleKey)
         {
             _pedal = System.Math.Clamp(_pedal - (ThrottleRampPerSec * dt), -1f, 1f);
+        }
+        else
+        {
+            var decay = PedalDecayPerSec * dt;
+            _pedal = MathF.Abs(_pedal) <= decay ? 0f : _pedal - (MathF.Sign(_pedal) * decay);
         }
 
         _chassis.WakeUp();
@@ -943,57 +1112,69 @@ public sealed class RaceSim
     }
 
     /// <summary>
-    /// 上移轮心直到车底轮廓不再穿入地形（凹槽/陡坡重生时防初始重叠）。
-    /// 每次取最大穿透深度一次上移到位，循环兑底防异常。
+    /// 整车轮廓关键点（旋转到坡度姿态后）相对地形的最大穿入深度（&gt;0 表示穿入）。
+    /// 采样：两轮最低点、底盘下沿两端与中点。
     /// </summary>
-    private float RaiseAboveTerrain(float spawnXM, float wheelYM)
+    private float MaxAssemblyPenetrationM(float centerX, float centerY, float angle)
     {
-        const int maxIter = 8;
-        var y = wheelYM;
-        for (var iter = 0; iter < maxIter; iter++)
-        {
-            var pen = MaxTerrainPenetrationM(spawnXM, y);
-            if (pen <= 0f)
-            {
-                break;
-            }
-
-            y += pen + SpawnClearanceM;
-        }
-
-        return y;
-    }
-
-    /// <summary>车底轮廓关键点相对地形的最大穿入深度（&gt;0 表示穿入）。</summary>
-    private float MaxTerrainPenetrationM(float spawnXM, float wheelYM)
-    {
-        var chassisCenterY = wheelYM + ChassisHalfH;
-        var chassisBottomY = chassisCenterY - ChassisHalfH;
+        var cos = MathF.Cos(angle);
+        var sin = MathF.Sin(angle);
         var maxPen = 0f;
 
-        // 轮子底部。
-        CheckPoint(spawnXM - WheelOffsetX, wheelYM - WheelRadius);
-        CheckPoint(spawnXM + WheelOffsetX, wheelYM - WheelRadius);
-        // 底盘下沿两端 + 中间采样（跨凹槽时底盘会顶到槽壁）。
-        CheckPoint(spawnXM - ChassisHalfW, chassisBottomY);
-        CheckPoint(spawnXM + ChassisHalfW, chassisBottomY);
-        for (var i = -2; i <= 2; i++)
-        {
-            var x = spawnXM + (ChassisHalfW * i / 2f);
-            CheckPoint(x, chassisBottomY);
-        }
+        // 轮心局部 (∓WheelOffsetX, -ChassisHalfH)，轮底再沿车身下方向量偏移。
+        CheckLocal(-WheelOffsetX, -ChassisHalfH - WheelRadius);
+        CheckLocal(WheelOffsetX, -ChassisHalfH - WheelRadius);
+        // 底盘下沿两端 + 中点。
+        CheckLocal(-ChassisHalfW, -ChassisHalfH);
+        CheckLocal(ChassisHalfW, -ChassisHalfH);
+        CheckLocal(0f, -ChassisHalfH);
 
         return maxPen;
 
-        void CheckPoint(float x, float y)
+        void CheckLocal(float lx, float ly)
         {
-            var terrainY = SampleSurfaceM(x);
-            var pen = terrainY - y;
+            var wx = centerX + (lx * cos) - (ly * sin);
+            var wy = centerY + (lx * sin) + (ly * cos);
+            var pen = SampleSurfaceM(wx) - wy;
             if (pen > maxPen)
             {
                 maxPen = pen;
             }
         }
+    }
+
+    /// <summary>世界坐标（plot px）下采样地形表面高度（px，向上为正）。</summary>
+    private float SampleSurfaceYPx(float worldXPx)
+    {
+        if (_worldXPx.Count == 0)
+        {
+            return _plotHPx * 0.2f;
+        }
+
+        if (worldXPx <= _worldXPx[0])
+        {
+            return _worldYPx[0];
+        }
+
+        if (worldXPx >= _worldXPx[^1])
+        {
+            return _worldYPx[^1];
+        }
+
+        for (var i = 0; i < _worldXPx.Count - 1; i++)
+        {
+            var x0 = _worldXPx[i];
+            var x1 = _worldXPx[i + 1];
+            if (worldXPx > x1)
+            {
+                continue;
+            }
+
+            var t = (x1 - x0) < 1e-3f ? 0f : (worldXPx - x0) / (x1 - x0);
+            return _worldYPx[i] * (1 - t) + _worldYPx[i + 1] * t;
+        }
+
+        return _worldYPx[^1];
     }
 
     private float SampleSurfaceM(float worldXM)
@@ -1003,33 +1184,7 @@ public sealed class RaceSim
             return _plotHM * 0.2f;
         }
 
-        var xPx = worldXM * PixelsPerMeter;
-        if (xPx <= _worldXPx[0])
-        {
-            return _worldYPx[0] / PixelsPerMeter;
-        }
-
-        if (xPx >= _worldXPx[^1])
-        {
-            return _worldYPx[^1] / PixelsPerMeter;
-        }
-
-        // Buffer is sorted by world X; linear scan is fine for ~1–2 screens.
-        for (var i = 0; i < _worldXPx.Count - 1; i++)
-        {
-            var x0 = _worldXPx[i];
-            var x1 = _worldXPx[i + 1];
-            if (xPx > x1)
-            {
-                continue;
-            }
-
-            var t = (x1 - x0) < 1e-3f ? 0f : (xPx - x0) / (x1 - x0);
-            var y = _worldYPx[i] * (1 - t) + _worldYPx[i + 1] * t;
-            return y / PixelsPerMeter;
-        }
-
-        return _worldYPx[^1] / PixelsPerMeter;
+        return SampleSurfaceYPx(worldXM * PixelsPerMeter) / PixelsPerMeter;
     }
 
     private void DestroyVehicle()

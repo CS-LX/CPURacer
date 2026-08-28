@@ -65,6 +65,8 @@ public sealed class NativeExternalOverlay : IDisposable
     private ID2D1SolidColorBrush? _strokeBrush;
     private ID2D1SolidColorBrush? _trackBrush;
     private ID2D1SolidColorBrush? _pedalBrush;
+    private ID2D1SolidColorBrush? _coinBrush;
+    private ID2D1SolidColorBrush? _coinEdgeBrush;
     private IDWriteFactory? _writeFactory;
     private IDWriteTextFormat? _textFormat;
 
@@ -365,6 +367,9 @@ public sealed class NativeExternalOverlay : IDisposable
         _strokeBrush = _renderTarget.CreateSolidColorBrush(TmEdge);
         _trackBrush = _renderTarget.CreateSolidColorBrush(TmWash);
         _pedalBrush = _renderTarget.CreateSolidColorBrush(TmEdge);
+        // 金币：亮金填充 + 深金描边（醒目且不与任务管理器蓝混淆）。
+        _coinBrush = _renderTarget.CreateSolidColorBrush(new Color4(1f, 0.8f, 0.25f, 0.95f));
+        _coinEdgeBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.72f, 0.5f, 0.05f, 1f));
         ApplyTaskmgrPalette();
     }
 
@@ -397,10 +402,16 @@ public sealed class NativeExternalOverlay : IDisposable
         if (_carPose is { } car)
         {
             ApplyAccent(car.AccentB, car.AccentG, car.AccentR);
+            DrawCoins(target, car);
             DrawCar(target, car);
             if (!ShowDebugChrome && car.IsRunning && !car.IsDead)
             {
                 DrawThrottleBar(target, car);
+            }
+
+            if (car.IsRunning && !car.IsDead)
+            {
+                DrawCoinScore(target, car);
             }
         }
         else if (_heightField is { } hf)
@@ -493,6 +504,59 @@ public sealed class NativeExternalOverlay : IDisposable
         if (_carDeadBrush is not null)
         {
             _carDeadBrush.Color = new Color4(1f, 0.88f, 0.88f, 0.94f);
+        }
+    }
+
+    /// <summary>右上角金币积分：金色硬币图标 + ×数量（比赛进行中显示）。</summary>
+    private void DrawCoinScore(ID2D1HwndRenderTarget target, CarState car)
+    {
+        if (_coinBrush is null || _coinEdgeBrush is null || _textFormat is null)
+        {
+            return;
+        }
+
+        var label = "×" + car.CoinsCollected;
+        const float textW = 48f;
+        var textX = _pixelWidth - 10f - textW;
+        const float iconR = 7f;
+        var iconCenter = new Vector2(textX - iconR - 5f, 16f);
+        var coin = new Ellipse(iconCenter, iconR, iconR);
+        target.FillEllipse(coin, _coinBrush);
+        target.DrawEllipse(coin, _coinEdgeBrush, 1.2f);
+        target.DrawText(
+            label,
+            _textFormat,
+            new Rect(textX, iconCenter.Y - 9.5f, textW, 20f),
+            _coinBrush);
+    }
+
+    /// <summary>金币：金色圆片 + 深色描边 + 内环（坐标与车身同 frame 像素空间）。</summary>
+    private void DrawCoins(ID2D1HwndRenderTarget target, CarState car)
+    {
+        if (_coinBrush is null || _coinEdgeBrush is null || car.Coins.Count == 0)
+        {
+            return;
+        }
+
+        var frameW = _heightField?.FrameWidth ?? _roi?.Width ?? _pixelWidth;
+        var frameH = _heightField?.FrameHeight ?? _roi?.Height ?? _pixelHeight;
+        if (frameW < 8 || frameH < 8)
+        {
+            return;
+        }
+
+        var sx = _pixelWidth / (float)frameW;
+        var sy = _pixelHeight / (float)frameH;
+        var radius = MathF.Max(4f, 8.5f * MathF.Min(sx, sy));
+        foreach (var coin in car.Coins)
+        {
+            var cx = coin.X * sx;
+            var cy = coin.YFromTop * sy;
+            var ellipse = new Ellipse(new Vector2(cx, cy), radius, radius);
+            target.FillEllipse(ellipse, _coinBrush);
+            target.DrawEllipse(ellipse, _coinEdgeBrush, 1.5f);
+            var inner = new Ellipse(new Vector2(cx, cy), radius * 0.55f, radius * 0.55f);
+            target.DrawEllipse(inner, _coinEdgeBrush, 1f);
         }
     }
 
@@ -730,6 +794,8 @@ public sealed class NativeExternalOverlay : IDisposable
         _strokeBrush?.Dispose();
         _trackBrush?.Dispose();
         _pedalBrush?.Dispose();
+        _coinBrush?.Dispose();
+        _coinEdgeBrush?.Dispose();
         _renderTarget?.Dispose();
         _orangeBrush = null;
         _redBrush = null;
@@ -745,6 +811,8 @@ public sealed class NativeExternalOverlay : IDisposable
         _strokeBrush = null;
         _trackBrush = null;
         _pedalBrush = null;
+        _coinBrush = null;
+        _coinEdgeBrush = null;
         _renderTarget = null;
     }
 
