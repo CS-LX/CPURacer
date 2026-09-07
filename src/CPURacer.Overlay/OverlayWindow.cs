@@ -375,7 +375,9 @@ public sealed class OverlayWindow : Window
     /// <summary>金币：金色圆片 + 深色描边 + 内环（坐标与车身同 frame 像素空间）。</summary>
     private void DrawCoins(DrawingContext dc, CarState car, double drawW, double drawH)
     {
-        if (car.Coins.Count == 0)
+        // Coins are pickups, not part of the game-over scene. Keep this guard here as
+        // well as in RaceSim so a stale pose can never leave them on screen.
+        if (!car.CoinsEnabled || !car.IsRunning || car.IsDead || car.Coins.Count == 0)
         {
             return;
         }

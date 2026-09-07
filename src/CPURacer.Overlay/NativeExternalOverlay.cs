@@ -533,7 +533,10 @@ public sealed class NativeExternalOverlay : IDisposable
     /// <summary>金币：金色圆片 + 深色描边 + 内环（坐标与车身同 frame 像素空间）。</summary>
     private void DrawCoins(ID2D1HwndRenderTarget target, CarState car)
     {
-        if (_coinBrush is null || _coinEdgeBrush is null || car.Coins.Count == 0)
+        // Coins are pickups, not part of the game-over scene. Keep this guard here as
+        // well as in RaceSim so a stale pose can never leave them on screen.
+        if (_coinBrush is null || _coinEdgeBrush is null
+            || !car.CoinsEnabled || !car.IsRunning || car.IsDead || car.Coins.Count == 0)
         {
             return;
         }

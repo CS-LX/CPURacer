@@ -358,6 +358,9 @@ public sealed class RaceSim
             _dead = true;
             IsRunning = false;
             _deathReason = "驶出赛道";
+            // The score remains available to the game-over prompt, but the live pickups
+            // belong to the active race only and must not survive into the result screen.
+            _coins.Clear();
             if (_runDistanceM > _sessionBestM)
             {
                 _sessionBestM = _runDistanceM;
