@@ -3,7 +3,10 @@
 
 #include <Windows.h>
 #include <UIAutomation.h>
+#include <algorithm>
 #include <atomic>
+#include <cstdint>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -101,8 +104,7 @@ HWND FindTaskmgrMain() {
             DWORD pid = 0;
             GetWindowThreadProcessId(hwnd, &pid);
             bool ok = true;
-            HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-            if (proc) {
+            if (HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid); proc) {
                 wchar_t path[MAX_PATH]{};
                 DWORD size = MAX_PATH;
                 if (QueryFullProcessImageNameW(proc, 0, path, &size)) {
@@ -137,12 +139,9 @@ bool NameLooksLikeNonCpu(const std::wstring& name) {
         L"\x5185\x5b58", L"Memory", L"\x78c1\x76d8", L"Disk", L"GPU",
         L"\x4ee5\x592a\x7f51", L"Ethernet", L"Wi-Fi", L"WLAN", L"Bluetooth", L"\x84dd\x7259",
     };
-    for (auto* k : keys) {
-        if (name.find(k) != std::wstring::npos) {
-            return true;
-        }
-    }
-    return false;
+    return std::any_of(std::cbegin(keys), std::cend(keys), [&name](const wchar_t* key) {
+        return name.find(key) != std::wstring::npos;
+    });
 }
 
 // 1 = CPU, 0 = other, -1 = inconclusive (typical on Win11 XAML Taskmgr).
@@ -185,7 +184,7 @@ int TryUiaCpuPage(HWND mainHwnd) {
     IUIAutomationCondition* trueCond = nullptr;
     automation->CreateTrueCondition(&trueCond);
     IUIAutomationElementArray* arr = nullptr;
-    bool cpuSel = false, otherSel = false, sawName = false;
+    bool cpuSel = false, otherSel = false;
     if (trueCond && SUCCEEDED(root->FindAll(TreeScope_Descendants, trueCond, &arr)) && arr) {
         int count = 0;
         arr->get_Length(&count);
@@ -196,9 +195,6 @@ int TryUiaCpuPage(HWND mainHwnd) {
             }
             BSTR nm = nullptr;
             el->get_CurrentName(&nm);
-            if (nm && *nm) {
-                sawName = true;
-            }
             IUIAutomationSelectionItemPattern* sel = nullptr;
             if (SUCCEEDED(el->GetCurrentPatternAs(UIA_SelectionItemPatternId,
                                                   IID_IUIAutomationSelectionItemPattern,
@@ -283,7 +279,7 @@ bool IsForegroundRelated(HWND mainHwnd, HWND chartHwnd) {
     return foregroundPid != 0 && foregroundPid == taskmgrPid;
 }
 
-enum class FindChartResult {
+enum class FindChartResult : std::uint8_t {
     Found,
     Missing,
     NotCpuPage,
