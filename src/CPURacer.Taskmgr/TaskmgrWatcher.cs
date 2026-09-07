@@ -322,8 +322,9 @@ public sealed class TaskmgrWatcher : IDisposable
             if (NativeMethods.IsWindowVisible(hWnd)
                 && string.Equals(NativeMethods.GetClassName(hWnd), ChartWindowClass, StringComparison.Ordinal)
                 && NativeMethods.GetWindowRect(hWnd, out var rect)
-                && rect.Width > 0
-                && rect.Height > 0)
+                && rect is { Width: > 0,
+                    Height: > 0
+                })
             {
                 charts.Add((hWnd, rect));
             }

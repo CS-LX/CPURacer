@@ -1,7 +1,5 @@
-using System.Drawing;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using CPURacer.Capture;
@@ -21,23 +19,23 @@ public partial class App : Application
     /// <summary>“请求旧实例退出”的命名事件。</summary>
     private const string InstanceShutdownEventName = @"Local\CPURacer.SingleInstance.Shutdown";
 
-    private Forms.NotifyIcon? _tray;
-    private Forms.ToolStripMenuItem? _trackItem;
-    private Forms.ToolStripMenuItem? _overlayItem;
-    private Forms.ToolStripMenuItem? _statusItem;
-    private Forms.ToolStripMenuItem? _followExternalItem;
-    private Forms.ToolStripMenuItem? _followChildItem;
-    private Forms.ToolStripMenuItem? _raceItem;
-    private Forms.ToolStripMenuItem? _restartItem;
-    private Forms.ToolStripMenuItem? _coinModeItem;
-    private Forms.ToolStripMenuItem? _debugItem;
-    private Forms.ToolStripMenuItem? _fitItem;
-    private Forms.ToolStripMenuItem? _advancedItem;
-    private Forms.ToolStripMenuItem? _exitItem;
-    private Forms.ToolStripMenuItem? _followMenuItem;
-    private Forms.ToolStripMenuItem? _langMenuItem;
-    private Forms.ToolStripMenuItem? _langEnItem;
-    private Forms.ToolStripMenuItem? _langZhItem;
+    private NotifyIcon? _tray;
+    private ToolStripMenuItem? _trackItem;
+    private ToolStripMenuItem? _overlayItem;
+    private ToolStripMenuItem? _statusItem;
+    private ToolStripMenuItem? _followExternalItem;
+    private ToolStripMenuItem? _followChildItem;
+    private ToolStripMenuItem? _raceItem;
+    private ToolStripMenuItem? _restartItem;
+    private ToolStripMenuItem? _coinModeItem;
+    private ToolStripMenuItem? _debugItem;
+    private ToolStripMenuItem? _fitItem;
+    private ToolStripMenuItem? _advancedItem;
+    private ToolStripMenuItem? _exitItem;
+    private ToolStripMenuItem? _followMenuItem;
+    private ToolStripMenuItem? _langMenuItem;
+    private ToolStripMenuItem? _langEnItem;
+    private ToolStripMenuItem? _langZhItem;
     private OverlayWindow? _overlay;
     private NativeExternalOverlay? _nativeOverlay;
     private TaskmgrWatcher? _watcher;
@@ -70,7 +68,7 @@ public partial class App : Application
         // 单实例替换：检测到已有实例时先结束旧进程，再由本进程接管。
         AcquireSingleInstance();
 
-        Forms.Application.SetHighDpiMode(Forms.HighDpiMode.PerMonitorV2);
+        Forms.Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         base.OnStartup(e);
         Locale.ApplyFromOs();
         Locale.Changed += OnLocaleChanged;
@@ -235,24 +233,24 @@ public partial class App : Application
     private void BuildTray()
     {
         var trayIcon = LoadAppIcon() ?? SystemIcons.Application;
-        _tray = new Forms.NotifyIcon
+        _tray = new NotifyIcon
         {
             Text = Strings.TipOpenCpu,
             Visible = true,
             Icon = trayIcon,
         };
 
-        var menu = new Forms.ContextMenuStrip();
+        var menu = new ContextMenuStrip();
 
-        _raceItem = new Forms.ToolStripMenuItem();
+        _raceItem = new ToolStripMenuItem();
         _raceItem.Click += (_, _) => ToggleRace();
         menu.Items.Add(_raceItem);
 
-        _restartItem = new Forms.ToolStripMenuItem { Enabled = false };
+        _restartItem = new ToolStripMenuItem { Enabled = false };
         _restartItem.Click += (_, _) => RestartRace();
         menu.Items.Add(_restartItem);
 
-        _coinModeItem = new Forms.ToolStripMenuItem
+        _coinModeItem = new ToolStripMenuItem
         {
             CheckOnClick = true,
             Checked = _race.CoinsEnabled,
@@ -266,17 +264,17 @@ public partial class App : Application
         };
         menu.Items.Add(_coinModeItem);
 
-        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add(new ToolStripSeparator());
 
-        _advancedItem = new Forms.ToolStripMenuItem();
+        _advancedItem = new ToolStripMenuItem();
 
-        _trackItem = new Forms.ToolStripMenuItem();
+        _trackItem = new ToolStripMenuItem();
         _trackItem.Click += (_, _) => ToggleTracking();
         _advancedItem.DropDownItems.Add(_trackItem);
 
-        _followMenuItem = new Forms.ToolStripMenuItem();
-        _followExternalItem = new Forms.ToolStripMenuItem { CheckOnClick = true };
-        _followChildItem = new Forms.ToolStripMenuItem { CheckOnClick = true };
+        _followMenuItem = new ToolStripMenuItem();
+        _followExternalItem = new ToolStripMenuItem { CheckOnClick = true };
+        _followChildItem = new ToolStripMenuItem { CheckOnClick = true };
         _followExternalItem.Click += (_, _) => SetFollowMode(TrackFollowMode.External);
         _followChildItem.Click += (_, _) => SetFollowMode(TrackFollowMode.Child);
         _followMenuItem.DropDownItems.Add(_followExternalItem);
@@ -284,11 +282,11 @@ public partial class App : Application
         _advancedItem.DropDownItems.Add(_followMenuItem);
         SyncFollowMenu();
 
-        _overlayItem = new Forms.ToolStripMenuItem();
+        _overlayItem = new ToolStripMenuItem();
         _overlayItem.Click += (_, _) => ToggleOverlayManual();
         _advancedItem.DropDownItems.Add(_overlayItem);
 
-        _debugItem = new Forms.ToolStripMenuItem { Checked = _debugOverlay, CheckOnClick = true };
+        _debugItem = new ToolStripMenuItem { Checked = _debugOverlay, CheckOnClick = true };
         _debugItem.CheckedChanged += (_, _) =>
         {
             if (_debugItem is null)
@@ -300,7 +298,7 @@ public partial class App : Application
         };
         _advancedItem.DropDownItems.Add(_debugItem);
 
-        _fitItem = new Forms.ToolStripMenuItem { Checked = _showFitPolyline, CheckOnClick = true };
+        _fitItem = new ToolStripMenuItem { Checked = _showFitPolyline, CheckOnClick = true };
         _fitItem.CheckedChanged += (_, _) =>
         {
             if (_fitItem is null)
@@ -321,21 +319,21 @@ public partial class App : Application
         };
         _advancedItem.DropDownItems.Add(_fitItem);
 
-        _langMenuItem = new Forms.ToolStripMenuItem();
-        _langEnItem = new Forms.ToolStripMenuItem { CheckOnClick = true };
-        _langZhItem = new Forms.ToolStripMenuItem { CheckOnClick = true };
+        _langMenuItem = new ToolStripMenuItem();
+        _langEnItem = new ToolStripMenuItem { CheckOnClick = true };
+        _langZhItem = new ToolStripMenuItem { CheckOnClick = true };
         _langEnItem.Click += (_, _) => Locale.SetEnglish();
         _langZhItem.Click += (_, _) => Locale.SetChinese();
         _langMenuItem.DropDownItems.Add(_langEnItem);
         _langMenuItem.DropDownItems.Add(_langZhItem);
         _advancedItem.DropDownItems.Add(_langMenuItem);
 
-        _statusItem = new Forms.ToolStripMenuItem { Enabled = false };
+        _statusItem = new ToolStripMenuItem { Enabled = false };
         _advancedItem.DropDownItems.Add(_statusItem);
         menu.Items.Add(_advancedItem);
-        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add(new ToolStripSeparator());
 
-        _exitItem = new Forms.ToolStripMenuItem();
+        _exitItem = new ToolStripMenuItem();
         _exitItem.Click += (_, _) => Shutdown();
         menu.Items.Add(_exitItem);
 
@@ -918,8 +916,8 @@ public partial class App : Application
             Forms.MessageBox.Show(
                 Strings.MsgWatchPaused,
                 "CPURacer",
-                Forms.MessageBoxButtons.OK,
-                Forms.MessageBoxIcon.Information);
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
             return;
         }
 
@@ -931,8 +929,8 @@ public partial class App : Application
             Forms.MessageBox.Show(
                 Strings.MsgNeedCpuChart,
                 "CPURacer",
-                Forms.MessageBoxButtons.OK,
-                Forms.MessageBoxIcon.Information);
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
             return;
         }
 
@@ -993,8 +991,8 @@ public partial class App : Application
         Forms.MessageBox.Show(
             Strings.MsgAdminUipi,
             "CPURacer",
-            Forms.MessageBoxButtons.OK,
-            Forms.MessageBoxIcon.Information);
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Information);
     }
 
     private void RestartRace()
@@ -1184,8 +1182,8 @@ public partial class App : Application
             Forms.MessageBox.Show(
                 Strings.MsgTrackNativeMissing,
                 "CPURacer",
-                Forms.MessageBoxButtons.OK,
-                Forms.MessageBoxIcon.Warning);
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
         }
 
         _watcher.SetFollowMode(_followMode);

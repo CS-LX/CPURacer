@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-
 namespace CPURacer.Game;
 
 /// <summary>金币的绘制快照（frame 像素坐标，与 CarState 同一空间）。</summary>

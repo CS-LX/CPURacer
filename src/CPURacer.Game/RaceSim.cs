@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Diagnostics;
 using Box2DX.Collision;
 using Box2DX.Common;
@@ -553,9 +552,9 @@ public sealed class RaceSim
                 : string.Format(Locale.Culture, Strings.HudRacing, _runDistanceM, _sessionBestM);
 
         // TaskmgrPlayer ColorEdge RGB(12,125,187) as BGRA accent defaults.
-        var ab = _terrain?.AccentB ?? (byte)187;
-        var ag = _terrain?.AccentG ?? (byte)125;
-        var ar = _terrain?.AccentR ?? (byte)12;
+        var ab = _terrain?.AccentB ?? 187;
+        var ag = _terrain?.AccentG ?? 125;
+        var ar = _terrain?.AccentR ?? 12;
         // Draw Y-down: wheel hub is below chassis by the axle length used at spawn.
         var axleYM = ChassisHalfH;
         var wheelSpin = _wheelBack?.GetAngle() ?? 0f;
@@ -963,7 +962,7 @@ public sealed class RaceSim
         }
 
         var samplePxPerSec = (float)(shiftPx / dtSec);
-        samplePxPerSec = System.Math.Clamp(samplePxPerSec, 0f, MaxScrollShiftPx / (float)FixedDt);
+        samplePxPerSec = System.Math.Clamp(samplePxPerSec, 0f, MaxScrollShiftPx / FixedDt);
         _scrollPxPerSec += (samplePxPerSec - _scrollPxPerSec) * ScrollSmooth;
     }
 

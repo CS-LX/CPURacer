@@ -242,12 +242,17 @@ public sealed class OverlayWindow : Window
                 {
                     DrawCoins(dc, car, drawW, drawH);
                     DrawCar(dc, car, drawW, drawH);
-                    if (!ShowDebugChrome && car.IsRunning && !car.IsDead)
+                    if (!ShowDebugChrome && car is { IsRunning: true,
+                        IsDead: false
+                    })
                     {
                         DrawThrottleBar(dc, car, drawW, drawH, ar, ag, ab);
                     }
 
-                    if (car.CoinsEnabled && car.IsRunning && !car.IsDead)
+                    if (car is { CoinsEnabled: true,
+                            IsRunning: true,
+                            IsDead: false
+                        })
                     {
                         DrawCoinScore(dc, car, drawW);
                     }

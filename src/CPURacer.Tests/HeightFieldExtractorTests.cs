@@ -115,7 +115,7 @@ public class HeightFieldExtractorTests
                 return (30, 30, 30);
             }
 
-            if (y >= washTop && y < strokeY)
+            if (y is >= washTop and < strokeY)
             {
                 return (90, 70, 55);
             }
@@ -386,7 +386,7 @@ public class HeightFieldExtractorTests
         const int lineY = 93;
         var bgra = MakeFrame(w, h, (x, y) =>
         {
-            if (x >= 4 && x < w - 4 && y >= lineY && y < h - 4)
+            if (x is >= 4 and < w - 4 && y is >= lineY and < h - 4)
             {
                 return (240, 140, 50);
             }

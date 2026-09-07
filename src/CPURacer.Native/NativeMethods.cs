@@ -55,13 +55,18 @@ public static class NativeMethods
                 DwmwaExtendedFrameBounds,
                 out bounds,
                 Marshal.SizeOf<RECT>()) == 0
-            && bounds.Width > 0
-            && bounds.Height > 0)
+            && bounds is {
+                Width: > 0,
+                Height: > 0
+            })
         {
             return true;
         }
-
-        return GetWindowRect(hwnd, out bounds) && bounds.Width > 0 && bounds.Height > 0;
+        return GetWindowRect(hwnd, out bounds)
+        && bounds is {
+            Width: > 0,
+            Height: > 0
+        };
     }
 
     [DllImport("user32.dll")]

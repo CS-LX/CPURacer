@@ -197,9 +197,9 @@ public sealed class HeightFieldExtractor
         byte ar = 0;
         if (accentWeight > 0)
         {
-            ab = (byte)System.Math.Clamp(accentB / accentWeight, 0, 255);
-            ag = (byte)System.Math.Clamp(accentG / accentWeight, 0, 255);
-            ar = (byte)System.Math.Clamp(accentR / accentWeight, 0, 255);
+            ab = (byte)Math.Clamp(accentB / accentWeight, 0, 255);
+            ag = (byte)Math.Clamp(accentG / accentWeight, 0, 255);
+            ar = (byte)Math.Clamp(accentR / accentWeight, 0, 255);
             UpdateAccentTarget(ab, ag, ar, accentWeight);
         }
 
@@ -333,9 +333,9 @@ public sealed class HeightFieldExtractor
 
         // dominant 通道必须与目标一致。
         var targetMax = Math.Max(_accentB, Math.Max(_accentG, _accentR));
-        if (targetMax == _accentB && (b < g || b < r)
-            || targetMax == _accentG && (g < b || g < r)
-            || targetMax == _accentR && (r < b || r < g))
+        if ((targetMax == _accentB && (b < g || b < r))
+            || (targetMax == _accentG && (g < b || g < r))
+            || (targetMax == _accentR && (r < b || r < g)))
         {
             return 0;
         }

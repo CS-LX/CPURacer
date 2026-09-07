@@ -280,7 +280,7 @@ internal sealed class WgcWindowSession : IDisposable
         {
             if (!ApiInformation.IsMethodPresent(
                     "Windows.Graphics.Capture.GraphicsCaptureAccess",
-                    "RequestAccessAsync"))
+                    nameof(GraphicsCaptureAccess.RequestAccessAsync)))
             {
                 return;
             }
@@ -303,7 +303,7 @@ internal sealed class WgcWindowSession : IDisposable
         {
             if (!ApiInformation.IsPropertyPresent(
                     "Windows.Graphics.Capture.GraphicsCaptureSession",
-                    "IsBorderRequired"))
+                    nameof(GraphicsCaptureSession.IsBorderRequired)))
             {
                 return;
             }
@@ -429,7 +429,7 @@ internal sealed class WgcWindowSession : IDisposable
     }
 
     private static bool NativeMethodsIsWindow(IntPtr hwnd) =>
-        CPURacer.Native.NativeMethods.IsWindow(hwnd);
+        Native.NativeMethods.IsWindow(hwnd);
 
     [ComImport]
     [System.Runtime.InteropServices.Guid("3628E81B-3CAC-4C60-B7F4-23CE0E0C3356")]

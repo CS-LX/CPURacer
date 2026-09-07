@@ -9,8 +9,6 @@ using SharpGen.Runtime;
 using Vortice.Direct2D1;
 using Vortice.DirectWrite;
 using Vortice.Mathematics;
-using FactoryType = Vortice.Direct2D1.FactoryType;
-using WriteFactoryType = Vortice.DirectWrite.FactoryType;
 
 namespace CPURacer.Overlay;
 
@@ -288,8 +286,8 @@ public sealed class NativeExternalOverlay : IDisposable
         _ = DwmExtendFrameIntoClientArea(_hwnd, ref margins);
         _ = SetLayeredWindowAttributes(_hwnd, 0, 255, LwaAlpha);
 
-        _d2dFactory = D2D1.D2D1CreateFactory<ID2D1Factory>(FactoryType.SingleThreaded, DebugLevel.None);
-        _writeFactory = DWrite.DWriteCreateFactory<IDWriteFactory>(WriteFactoryType.Shared);
+        _d2dFactory = D2D1.D2D1CreateFactory<ID2D1Factory>();
+        _writeFactory = DWrite.DWriteCreateFactory<IDWriteFactory>();
         _textFormat = _writeFactory.CreateTextFormat(
             "Consolas",
             null,
@@ -369,7 +367,7 @@ public sealed class NativeExternalOverlay : IDisposable
         _pedalBrush = _renderTarget.CreateSolidColorBrush(TmEdge);
         // 金币：亮金填充 + 深金描边（醒目且不与任务管理器蓝混淆）。
         _coinBrush = _renderTarget.CreateSolidColorBrush(new Color4(1f, 0.8f, 0.25f, 0.95f));
-        _coinEdgeBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.72f, 0.5f, 0.05f, 1f));
+        _coinEdgeBrush = _renderTarget.CreateSolidColorBrush(new Color4(0.72f, 0.5f, 0.05f));
         ApplyTaskmgrPalette();
     }
 
@@ -404,12 +402,17 @@ public sealed class NativeExternalOverlay : IDisposable
             ApplyAccent(car.AccentB, car.AccentG, car.AccentR);
             DrawCoins(target, car);
             DrawCar(target, car);
-            if (!ShowDebugChrome && car.IsRunning && !car.IsDead)
+            if (!ShowDebugChrome && car is { IsRunning: true,
+                IsDead: false
+            })
             {
                 DrawThrottleBar(target, car);
             }
 
-            if (car.CoinsEnabled && car.IsRunning && !car.IsDead)
+            if (car is { CoinsEnabled: true,
+                    IsRunning: true,
+                    IsDead: false
+                })
             {
                 DrawCoinScore(target, car);
             }
@@ -474,7 +477,7 @@ public sealed class NativeExternalOverlay : IDisposable
     // TaskmgrPlayer/config.cfg — BGR→RGB.
     // ColorEdge/Frame = 187,125,12 → RGB(12,125,187)  stroke
     // ColorDark       = 250,246,241 → RGB(241,246,250)  fill
-    private static readonly Color4 TmEdge = new(12f / 255f, 125f / 255f, 187f / 255f, 1f);
+    private static readonly Color4 TmEdge = new(12f / 255f, 125f / 255f, 187f / 255f);
     private static readonly Color4 TmFill = new(241f / 255f, 246f / 255f, 250f / 255f, 0.94f);
     private static readonly Color4 TmWash = new(241f / 255f, 246f / 255f, 250f / 255f, 0.75f);
 
@@ -591,7 +594,7 @@ public sealed class NativeExternalOverlay : IDisposable
         var outline = _strokeBrush!;
         if (car.IsDead)
         {
-            outline.Color = new Color4(0.75f, 0.2f, 0.2f, 1f);
+            outline.Color = new Color4(0.75f, 0.2f, 0.2f);
         }
 
         // Box2D +angle is CCW in Y-up; D2D +angle is CW in Y-down → negate.
@@ -651,7 +654,7 @@ public sealed class NativeExternalOverlay : IDisposable
             }
         }
 
-        var fontSize = System.Math.Clamp(_pixelHeight / (lineCount * 1.25f), 8f, 20f);
+        var fontSize = Math.Clamp(_pixelHeight / (lineCount * 1.25f), 8f, 20f);
         using var format = _writeFactory.CreateTextFormat(
             "Consolas",
             null,
@@ -681,9 +684,9 @@ public sealed class NativeExternalOverlay : IDisposable
         }
 
         var barW = 8f;
-        var barH = System.Math.Clamp(_pixelHeight * 0.28f, 72f, 140f);
+        var barH = Math.Clamp(_pixelHeight * 0.28f, 72f, 140f);
         var x0 = 12f;
-        var y0 = System.Math.Max(36f, _pixelHeight - 28f - barH);
+        var y0 = Math.Max(36f, _pixelHeight - 28f - barH);
         var track = new Rect(x0, y0, barW, barH);
         target.FillRectangle(track, _trackBrush);
         target.DrawRectangle(track, _strokeBrush, 1f);
@@ -691,7 +694,7 @@ public sealed class NativeExternalOverlay : IDisposable
         var midY = y0 + (barH * 0.5f);
         target.DrawLine(new Vector2(x0 - 2f, midY), new Vector2(x0 + barW + 2f, midY), _hudBrush, 1f);
 
-        var pedal = System.Math.Clamp(car.Pedal, -1f, 1f);
+        var pedal = Math.Clamp(car.Pedal, -1f, 1f);
         if (MathF.Abs(pedal) >= 0.02f)
         {
             float fillY;
@@ -708,7 +711,7 @@ public sealed class NativeExternalOverlay : IDisposable
             }
 
             target.FillRectangle(
-                new Rect(x0 + 1f, fillY, barW - 2f, System.Math.Max(1f, fillH)),
+                new Rect(x0 + 1f, fillY, barW - 2f, Math.Max(1f, fillH)),
                 _pedalBrush);
         }
 

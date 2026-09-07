@@ -1,5 +1,4 @@
 #if DEBUG
-using System.IO;
 #endif
 
 namespace CPURacer.Capture;
