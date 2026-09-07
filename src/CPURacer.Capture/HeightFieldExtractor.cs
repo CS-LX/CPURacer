@@ -78,6 +78,7 @@ public sealed class HeightFieldExtractor
 
     private readonly PlotInset _inset;
     private readonly int _smoothRadius;
+    private readonly NativeCaptureApi.NativeHeightExtractor? _nativeExtractor;
 
     private byte _accentB = 187;
     private byte _accentG = 125;
@@ -89,11 +90,27 @@ public sealed class HeightFieldExtractor
     {
         _inset = inset ?? PlotInset.DefaultWin11Cpu;
         _smoothRadius = Math.Max(0, smoothRadius);
+        _nativeExtractor = NativeCaptureApi.TryCreateExtractor(_inset, _smoothRadius);
     }
 
     public PlotInset Inset => _inset;
 
+    public int SmoothRadius => _smoothRadius;
+
+    public bool IsNativeAccelerated => _nativeExtractor is not null;
+
     public HeightField? Extract(CapturedFrame frame)
+    {
+        if (_nativeExtractor is not null
+            && _nativeExtractor.TryExtract(frame, out var nativeField))
+        {
+            return nativeField;
+        }
+
+        return ExtractManaged(frame);
+    }
+
+    private HeightField? ExtractManaged(CapturedFrame frame)
     {
         var w = frame.Width;
         var h = frame.Height;
@@ -241,7 +258,16 @@ public sealed class HeightFieldExtractor
 
     /// <summary>Extract from raw BGRA (for tests / fixtures).</summary>
     public HeightField? ExtractBgra(int width, int height, byte[] bgra)
-        => Extract(new CapturedFrame(width, height, bgra));
+    {
+        var frame = new CapturedFrame(width, height, bgra);
+        // Keep the managed scorer state synchronized because AccentScore is a
+        // public diagnostic/test surface even when native extraction is active.
+        var managedField = ExtractManaged(frame);
+        return _nativeExtractor is not null
+               && _nativeExtractor.TryExtract(frame, out var nativeField)
+            ? nativeField
+            : managedField;
+    }
 
     /// <summary>
     /// Brightest-blue Y near the stroke. Windowed around argmax so dim fill cannot

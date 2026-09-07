@@ -4,13 +4,21 @@ using CPURacer.Taskmgr;
 
 namespace CPURacer.Capture;
 
+public enum HeightFieldCapturePoll
+{
+    Unavailable,
+    NoUpdate,
+    Updated,
+    ExtractSkipped,
+}
+
 /// <summary>
 /// Captures the Task Manager window through Windows Graphics Capture, cropped to
 /// the CPU chart. Because WGC targets Taskmgr rather than the composed desktop,
 /// CPURacer's separate External overlay is absent from terrain frames while it
 /// remains visible to screenshots and display recorders.
 /// </summary>
-public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
+public sealed class TaskmgrWindowCapture : IDisposable
 {
     private readonly object _gate = new();
 
@@ -27,6 +35,13 @@ public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
     private int _generation;
     private DateTime _nextRetryUtc;
     private bool _disposed;
+    private bool _nativeActive;
+    private bool _nativeDisabled;
+    private float[] _nativeScratch = Array.Empty<float>();
+    private ulong _lastNativeSequence;
+    private bool _hasNativeUpdateTiming;
+    private long _nextManagedSequence;
+    private long _lastManagedSequence;
 
     private readonly Queue<TimeSpan> _updateIntervals = new();
     private TimeSpan _lastUpdateTicks;
@@ -40,7 +55,9 @@ public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
         {
             lock (_gate)
             {
-                return _updateIntervals.Count >= 3;
+                return _nativeActive
+                    ? _hasNativeUpdateTiming
+                    : _updateIntervals.Count >= 3;
             }
         }
     }
@@ -81,11 +98,15 @@ public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
         }
     }
 
-    public string Name => "wgc";
+    public string Name => _nativeActive ? "wgc-native" : "wgc-managed";
 
-    public CapturedFrame? TryCapture(in ChartRoi roi)
+    public HeightFieldCapturePoll TryCaptureHeightField(
+        in ChartRoi roi,
+        HeightFieldExtractor extractor,
+        out HeightField? field)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        field = null;
 
         if (!roi.ShouldShow
             || roi.MainHwnd == IntPtr.Zero
@@ -93,25 +114,74 @@ public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
             || roi.Width < 8
             || roi.Height < 8)
         {
-            return null;
+            return HeightFieldCapturePoll.Unavailable;
         }
 
-        // Screen-space chart rect — same space as Overlay GetWindowRect. Map into the
-        // WGC buffer via DWMWA_EXTENDED_FRAME_BOUNDS (WGC item.Size matches that outer).
+        var inset = extractor.Inset;
         var key = new CaptureKey(
             roi.MainHwnd,
             roi.Left,
             roi.Top,
             roi.Width,
-            roi.Height);
+            roi.Height,
+            inset.Left,
+            inset.Top,
+            inset.Right,
+            inset.Bottom,
+            extractor.SmoothRadius);
+
+        LatestFrame? managedFrame = null;
 
         lock (_gate)
         {
             if (_key != key)
             {
-                StartWorkerLocked(key);
+                StartCaptureLocked(key);
             }
-            else if (!_workerRunning && DateTime.UtcNow >= _nextRetryUtc)
+
+            if (_nativeActive)
+            {
+                var result = NativeCaptureApi.TryGetHeightField(
+                    _lastNativeSequence,
+                    _nativeScratch,
+                    out var info);
+                if (result < 0)
+                {
+                    DisableNativeAndStartManagedLocked(key);
+                    return HeightFieldCapturePoll.Unavailable;
+                }
+                if (result == 0)
+                {
+                    return HeightFieldCapturePoll.NoUpdate;
+                }
+                if (info.PlotWidth != _nativeScratch.Length
+                    || info.FrameWidth != key.Width
+                    || info.FrameHeight != key.Height)
+                {
+                    DisableNativeAndStartManagedLocked(key);
+                    return HeightFieldCapturePoll.Unavailable;
+                }
+
+                _lastNativeSequence = info.Sequence;
+                _hasNativeUpdateTiming = info.HasUpdateTiming != 0;
+                _lastUpdateTicks = TimeSpan.FromTicks(info.LastUpdateTicks);
+                _updatePeriod = TimeSpan.FromTicks(info.UpdatePeriodTicks);
+                field = new HeightField(
+                    info.FrameWidth,
+                    info.FrameHeight,
+                    new PlotInset(
+                        info.InsetLeft,
+                        info.InsetTop,
+                        info.InsetRight,
+                        info.InsetBottom),
+                    (float[])_nativeScratch.Clone(),
+                    info.AccentB,
+                    info.AccentG,
+                    info.AccentR);
+                return HeightFieldCapturePoll.Updated;
+            }
+
+            if (!_workerRunning && DateTime.UtcNow >= _nextRetryUtc)
             {
                 StartWorkerLocked(key);
             }
@@ -121,23 +191,93 @@ public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
                 || latest.Width != roi.Width
                 || latest.Height != roi.Height)
             {
-                return null;
+                return HeightFieldCapturePoll.Unavailable;
+            }
+            if (latest.Sequence <= _lastManagedSequence)
+            {
+                return HeightFieldCapturePoll.NoUpdate;
             }
 
-            return new CapturedFrame(latest.Width, latest.Height, latest.Bgra);
+            _lastManagedSequence = latest.Sequence;
+            managedFrame = latest;
         }
+
+        field = extractor.Extract(new CapturedFrame(
+            managedFrame!.Width,
+            managedFrame.Height,
+            managedFrame.Bgra));
+        return field is null
+            ? HeightFieldCapturePoll.ExtractSkipped
+            : HeightFieldCapturePoll.Updated;
     }
 
-    private void StartWorkerLocked(CaptureKey key)
+    private void StartCaptureLocked(CaptureKey key)
     {
         _workerCts?.Cancel();
+        _workerRunning = false;
+        ++_generation;
+        if (_nativeActive)
+        {
+            NativeCaptureApi.Stop();
+            _nativeActive = false;
+        }
 
+        ResetStateLocked(key);
+        if (!_nativeDisabled && NativeCaptureApi.IsAvailable)
+        {
+            var config = new NativeCaptureConfig
+            {
+                MainHwnd = key.MainHwnd.ToInt64(),
+                ScreenLeft = key.ScreenLeft,
+                ScreenTop = key.ScreenTop,
+                Width = key.Width,
+                Height = key.Height,
+                InsetLeft = key.InsetLeft,
+                InsetTop = key.InsetTop,
+                InsetRight = key.InsetRight,
+                InsetBottom = key.InsetBottom,
+                SmoothRadius = key.SmoothRadius,
+            };
+            if (NativeCaptureApi.TryStart(config, out _))
+            {
+                _nativeActive = true;
+                _nativeScratch = new float[
+                    Math.Max(1, key.Width - key.InsetLeft - key.InsetRight)];
+                return;
+            }
+
+            _nativeDisabled = true;
+        }
+
+        StartWorkerLocked(key);
+    }
+
+    private void DisableNativeAndStartManagedLocked(CaptureKey key)
+    {
+        NativeCaptureApi.Stop();
+        _nativeActive = false;
+        _nativeDisabled = true;
+        StartWorkerLocked(key);
+    }
+
+    private void ResetStateLocked(CaptureKey key)
+    {
         _key = key;
         _latest = null;
         _updateIntervals.Clear();
         _lastUpdateTicks = TimeSpan.Zero;
         _updatePeriod = TimeSpan.Zero;
         _lastCompareBgra = null;
+        _lastNativeSequence = 0;
+        _hasNativeUpdateTiming = false;
+        _lastManagedSequence = 0;
+    }
+
+    private void StartWorkerLocked(CaptureKey key)
+    {
+        _workerCts?.Cancel();
+
+        ResetStateLocked(key);
         var cts = new CancellationTokenSource();
         _workerCts = cts;
         _workerRunning = true;
@@ -189,7 +329,12 @@ public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
                         && _key == key
                         && !token.IsCancellationRequested)
                     {
-                        _latest = new LatestFrame(key, key.Width, key.Height, bgra);
+                        _latest = new LatestFrame(
+                            key,
+                            key.Width,
+                            key.Height,
+                            bgra,
+                            ++_nextManagedSequence);
                         TrackUpdateTiming(presentTime, bgra, key.Width, key.Height);
                     }
                 }
@@ -351,6 +496,7 @@ public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
     public void Dispose()
     {
         Task? worker;
+        bool stopNative;
         lock (_gate)
         {
             if (_disposed)
@@ -362,6 +508,13 @@ public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
             _workerCts?.Cancel();
             worker = _worker;
             _latest = null;
+            stopNative = _nativeActive;
+            _nativeActive = false;
+        }
+
+        if (stopNative)
+        {
+            NativeCaptureApi.Stop();
         }
 
         try
@@ -385,11 +538,17 @@ public sealed class TaskmgrWindowCapture : IFrameCapture, IDisposable
         int ScreenLeft,
         int ScreenTop,
         int Width,
-        int Height);
+        int Height,
+        int InsetLeft,
+        int InsetTop,
+        int InsetRight,
+        int InsetBottom,
+        int SmoothRadius);
 
     private sealed record LatestFrame(
         CaptureKey Key,
         int Width,
         int Height,
-        byte[] Bgra);
+        byte[] Bgra,
+        long Sequence);
 }

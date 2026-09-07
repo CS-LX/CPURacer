@@ -5,6 +5,14 @@ namespace CPURacer.Tests;
 public class HeightFieldExtractorTests
 {
     [Fact]
+    public void NativeAcceleration_ActivatesWhenNativeLibraryIsBundled()
+    {
+        var nativePath = Path.Combine(AppContext.BaseDirectory, "CPURacer.TrackNative.dll");
+        var extractor = new HeightFieldExtractor();
+        Assert.Equal(File.Exists(nativePath), extractor.IsNativeAccelerated);
+    }
+
+    [Fact]
     public void Extract_FlatAccentBand_YieldsNearConstantHeight()
     {
         const int w = 200;

@@ -146,7 +146,7 @@ public sealed class NativeExternalOverlay : IDisposable
 
     public void ClearRoi() => ApplyRoi(null);
 
-    public void TickExternalFrame(IFrameCapture capture, HeightFieldExtractor extractor)
+    public void TickExternalFrame(TaskmgrWindowCapture capture, HeightFieldExtractor extractor)
     {
         ThrowIfDisposed();
         _captureName = capture.Name;
@@ -209,8 +209,8 @@ public sealed class NativeExternalOverlay : IDisposable
         if (targetForeground || ForceVisible)
         {
             var captureRoi = _roi.Value with { ShouldShow = true };
-            var frame = capture.TryCapture(captureRoi);
-            if (frame is null)
+            var poll = capture.TryCaptureHeightField(captureRoi, extractor, out var field);
+            if (poll == HeightFieldCapturePoll.Unavailable)
             {
                 _captureFailStreak++;
                 CaptureStatus = $"cap=fail({_captureFailStreak})";
@@ -219,20 +219,22 @@ public sealed class NativeExternalOverlay : IDisposable
                     _heightField = null;
                 }
             }
+            else if (poll == HeightFieldCapturePoll.NoUpdate)
+            {
+                _captureFailStreak = 0;
+                CaptureStatus = $"cap={capture.Name}-ok cached";
+            }
+            else if (poll == HeightFieldCapturePoll.ExtractSkipped || field is null)
+            {
+                _captureFailStreak = 0;
+                CaptureStatus = $"cap={capture.Name}-ok extract=skip";
+            }
             else
             {
                 _captureFailStreak = 0;
-                var field = extractor.Extract(frame);
-                if (field is null)
-                {
-                    CaptureStatus = $"cap={capture.Name}-ok extract=skip";
-                }
-                else
-                {
-                    _heightField = field;
-                    CaptureStatus = $"cap={capture.Name}-ok cols={field.PlotWidth}";
-                    HeightFieldUpdated?.Invoke(field);
-                }
+                _heightField = field;
+                CaptureStatus = $"cap={capture.Name}-ok cols={field.PlotWidth}";
+                HeightFieldUpdated?.Invoke(field);
             }
         }
         else
