@@ -484,16 +484,23 @@ public partial class App : Application
     }
 
     private string FormatGameOverPrompt()
-        => _race.CoinsEnabled
-            ? FigglePrompt.FormatExpand(
-                Strings.PromptGameOver,
-                _race.DistanceMeters,
-                _race.BestDistanceMeters,
-                _race.CoinsCollected)
-            : FigglePrompt.FormatExpand(
-                Strings.PromptGameOverNoCoins,
-                _race.DistanceMeters,
-                _race.BestDistanceMeters);
+    {
+        var reason = _race.DeathReason;
+        var template = _race.CoinsEnabled
+            ? string.IsNullOrEmpty(reason)
+                ? Strings.PromptGameOver
+                : Strings.PromptGameOverWithReason
+            : string.IsNullOrEmpty(reason)
+                ? Strings.PromptGameOverNoCoins
+                : Strings.PromptGameOverNoCoinsWithReason;
+
+        return FigglePrompt.FormatExpand(
+            template,
+            _race.DistanceMeters,
+            _race.BestDistanceMeters,
+            _race.CoinsCollected,
+            reason);
+    }
 
     /// <summary>Child-only capture path (External uses TickExternalFrame).</summary>
     private void CaptureTickChild()

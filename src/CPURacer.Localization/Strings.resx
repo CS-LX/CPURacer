@@ -10,9 +10,18 @@ to play</value></data>
   <data name="PromptGameOver" xml:space="preserve"><value>&lt;figgle&gt;GAME OVER&lt;/figgle&gt;
 press SPACE to retry
 {0:0.0}m · best {1:0.0}m · coins {2}</value></data>
+  <data name="PromptGameOverWithReason" xml:space="preserve"><value>&lt;figgle&gt;GAME OVER&lt;/figgle&gt;
+{3}
+press SPACE to retry
+{0:0.0}m · best {1:0.0}m · coins {2}</value></data>
   <data name="PromptGameOverNoCoins" xml:space="preserve"><value>&lt;figgle&gt;GAME OVER&lt;/figgle&gt;
 press SPACE to retry
 {0:0.0}m · best {1:0.0}m</value></data>
+  <data name="PromptGameOverNoCoinsWithReason" xml:space="preserve"><value>&lt;figgle&gt;GAME OVER&lt;/figgle&gt;
+{3}
+press SPACE to retry
+{0:0.0}m · best {1:0.0}m</value></data>
+  <data name="DeathReasonLeftTrack" xml:space="preserve"><value>ran off the track</value></data>
   <data name="PromptWaitingChart" xml:space="preserve"><value>open Task Manager
 Performance → CPU</value></data>
   <data name="PromptCaptureFail" xml:space="preserve"><value>can't see CPU chart

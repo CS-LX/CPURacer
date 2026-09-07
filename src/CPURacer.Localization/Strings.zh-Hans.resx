@@ -10,9 +10,18 @@
   <data name="PromptGameOver" xml:space="preserve"><value>&lt;figgle&gt;GAME OVER&lt;/figgle&gt;
 按 SPACE 再来一局
 {0:0.0}m · 最佳 {1:0.0}m · 金币 {2}</value></data>
+  <data name="PromptGameOverWithReason" xml:space="preserve"><value>&lt;figgle&gt;GAME OVER&lt;/figgle&gt;
+{3}
+按 SPACE 再来一局
+{0:0.0}m · 最佳 {1:0.0}m · 金币 {2}</value></data>
   <data name="PromptGameOverNoCoins" xml:space="preserve"><value>&lt;figgle&gt;GAME OVER&lt;/figgle&gt;
 按 SPACE 再来一局
 {0:0.0}m · 最佳 {1:0.0}m</value></data>
+  <data name="PromptGameOverNoCoinsWithReason" xml:space="preserve"><value>&lt;figgle&gt;GAME OVER&lt;/figgle&gt;
+{3}
+按 SPACE 再来一局
+{0:0.0}m · 最佳 {1:0.0}m</value></data>
+  <data name="DeathReasonLeftTrack" xml:space="preserve"><value>驶出赛道</value></data>
   <data name="PromptWaitingChart" xml:space="preserve"><value>打开任务管理器
 性能 → CPU</value></data>
   <data name="PromptCaptureFail" xml:space="preserve"><value>看不到 CPU 图

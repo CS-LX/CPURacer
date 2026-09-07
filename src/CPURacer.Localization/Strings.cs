@@ -19,7 +19,10 @@ public static class Strings
 
     public static string PromptIdle => Get(nameof(PromptIdle));
     public static string PromptGameOver => Get(nameof(PromptGameOver));
+    public static string PromptGameOverWithReason => Get(nameof(PromptGameOverWithReason));
     public static string PromptGameOverNoCoins => Get(nameof(PromptGameOverNoCoins));
+    public static string PromptGameOverNoCoinsWithReason => Get(nameof(PromptGameOverNoCoinsWithReason));
+    public static string DeathReasonLeftTrack => Get(nameof(DeathReasonLeftTrack));
     public static string PromptWaitingChart => Get(nameof(PromptWaitingChart));
     public static string PromptCaptureFail => Get(nameof(PromptCaptureFail));
     public static string HudRacing => Get(nameof(HudRacing));

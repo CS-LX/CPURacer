@@ -16,6 +16,12 @@ namespace CPURacer.Game;
 /// </summary>
 public sealed class RaceSim
 {
+    private enum RaceDeathReason
+    {
+        None,
+        LeftTrack,
+    }
+
     /// <summary>Plot pixels per physics meter. Car length ≈ 1.4 m at this scale.</summary>
     private const float PixelsPerMeter = 60f;
 
@@ -129,7 +135,8 @@ public sealed class RaceSim
     private float _respawnViewXPx = float.NaN;
     private float _runDistanceM;
     private float _sessionBestM;
-    private string _deathReason = "";
+    /// <summary>Locale-independent end-state cause; localized when it is presented to the player.</summary>
+    private RaceDeathReason _deathReason;
     /// <summary>存活金币（世界坐标，plot px；X 为世界 X，Y 为世界 Y 向上）。</summary>
     private readonly List<Vec2> _coins = new(64);
     private float _nextCoinXPx;
@@ -140,6 +147,13 @@ public sealed class RaceSim
     public bool IsRunning { get; private set; }
 
     public bool IsDead => _dead;
+
+    /// <summary>Localized reason for the current game-over state, or empty while none is set.</summary>
+    public string DeathReason => _deathReason switch
+    {
+        RaceDeathReason.LeftTrack => Strings.DeathReasonLeftTrack,
+        _ => string.Empty,
+    };
 
     /// <summary>Smoothed scroll of the viewport through world space (plot px/s).</summary>
     public float ScrollPxPerSec => _scrollPxPerSec;
@@ -210,7 +224,7 @@ public sealed class RaceSim
         _scrollOriginPx = 0;
         _pedal = 0;
         _runDistanceM = 0;
-        _deathReason = "";
+        _deathReason = RaceDeathReason.None;
         _coins.Clear();
         _coinsCollected = 0;
         _nextCoinXPx = 0;
@@ -249,7 +263,7 @@ public sealed class RaceSim
         _spawnWorldXPx = _scrollOriginPx + (_plotWPx * 0.22f);
         _maxWorldXPx = _spawnWorldXPx;
         _runDistanceM = 0;
-        _deathReason = "";
+        _deathReason = RaceDeathReason.None;
         _respawnViewXPx = float.NaN;
         _flipSinceMs = 0;
     }
@@ -356,7 +370,7 @@ public sealed class RaceSim
         {
             _dead = true;
             IsRunning = false;
-            _deathReason = "驶出赛道";
+            _deathReason = RaceDeathReason.LeftTrack;
             // The score remains available to the game-over prompt, but the live pickups
             // belong to the active race only and must not survive into the result screen.
             _coins.Clear();
