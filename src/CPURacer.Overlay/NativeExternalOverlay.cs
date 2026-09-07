@@ -715,6 +715,18 @@ public sealed class NativeExternalOverlay : IDisposable
             _textFormat!,
             new Rect(x0 + barW + 6f, midY - 8f, 56f, 20f),
             _hudBrush);
+
+        // W and S sit at the forward and reverse ends of the gauge, respectively.
+        target.DrawText(
+            "W",
+            _textFormat!,
+            new Rect(x0 - 2f, y0 - 18f, barW + 4f, 18f),
+            _hudBrush);
+        target.DrawText(
+            "S",
+            _textFormat!,
+            new Rect(x0 - 2f, y0 + barH + 2f, barW + 4f, 18f),
+            _hudBrush);
     }
 
     private void Hide()

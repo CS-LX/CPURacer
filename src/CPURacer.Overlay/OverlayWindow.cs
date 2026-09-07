@@ -557,6 +557,28 @@ public sealed class OverlayWindow : Window
             hud,
             VisualTreeHelper.GetDpi(this).PixelsPerDip);
         dc.DrawText(text, new Point(x0 + barW + 6, midY - 8));
+
+        // Key hints are deliberately attached to the two ends of the gauge:
+        // up/forward is W and down/reverse is S.
+        var wHint = new FormattedText(
+            "W",
+            System.Globalization.CultureInfo.CurrentUICulture,
+            FlowDirection.LeftToRight,
+            new Typeface("Consolas"),
+            11,
+            hud,
+            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        var sHint = new FormattedText(
+            "S",
+            System.Globalization.CultureInfo.CurrentUICulture,
+            FlowDirection.LeftToRight,
+            new Typeface("Consolas"),
+            11,
+            hud,
+            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        var hintX = x0 + ((barW - wHint.Width) * 0.5);
+        dc.DrawText(wHint, new Point(hintX, y0 - wHint.Height - 2));
+        dc.DrawText(sHint, new Point(x0 + ((barW - sHint.Width) * 0.5), y0 + barH + 2));
     }
 
     private void RefreshStatusText()
