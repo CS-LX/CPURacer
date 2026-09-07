@@ -1,4 +1,3 @@
-#define TRACKNATIVE_EXPORTS
 #include "track_native.h"
 
 #include <Windows.h>
